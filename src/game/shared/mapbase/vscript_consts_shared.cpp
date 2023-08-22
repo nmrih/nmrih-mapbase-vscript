@@ -628,6 +628,10 @@ void RegisterSharedScriptConstants()
 
 	// @NMRiH - Felis: Our additions go here!
 	ScriptRegisterConstant( g_pScriptVM, MAX_PLAYERS, "Max number of players in a game." );
+	ScriptRegisterConstant( g_pScriptVM, TEAM_ANY, "Index for any team." );
+	ScriptRegisterConstant( g_pScriptVM, TEAM_INVALID, "Index for an invalid team." );
+	ScriptRegisterConstant( g_pScriptVM, TEAM_UNASSIGNED, "Index for an unassigned team." );
+	ScriptRegisterConstant( g_pScriptVM, TEAM_SPECTATOR, "Index for spectator team." );
 
 	RegisterWeaponScriptConstants();
 }

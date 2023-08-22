@@ -16,6 +16,11 @@
 
 #ifndef CLIENT_DLL
 #include "ai_squad.h"
+
+// @NMRiH - Felis
+#include "nav_area.h"
+#include "nav_mesh.h"
+#include "nav_pathfind.h"
 #endif // !CLIENT_DLL
 
 #include "usermessages.h"
@@ -385,7 +390,7 @@ END_SCRIPTDESC();
 
 // Define to use the older code that loads all events manually independent from the game event manager.
 // Otherwise access event descriptors directly from engine.
-// @NMRiH - Felis: Enable this because offsets do not match in Linux
+// @NMRiH - Felis: Enable this because offsets do not match on Linux
 #define USE_OLD_EVENT_DESCRIPTORS 1
 /*
 //#define USE_OLD_EVENT_DESCRIPTORS 1
@@ -1299,7 +1304,7 @@ HSCRIPT CScriptReadWriteFile::ReadMapKeyValues()
 }
 
 //-----------------------------------------------------------------------------
-bool CScriptReadWriteFile::WriteMapKeyValues( HSCRIPT hInput )
+bool CScriptReadWriteFile::WriteMapKeyValues( const HSCRIPT hInput )
 {
 	char szFile[MAX_PATH];
 	V_sprintf_safe( szFile, "%s_kv.txt", gpGlobals->mapname.ToCStr() );
@@ -3332,6 +3337,514 @@ END_SCRIPTDESC();
 
 #endif // CLIENT_DLL
 
+// @NMRiH - Felis: Begin nav mesh stuff
+#ifndef CLIENT_DLL
+static CScriptNavAreaCollector ScriptNavAreaCollector( "CScriptNavAreaCollector" );
+CScriptNavAreaCollector *g_ScriptNavAreaCollector = &ScriptNavAreaCollector;
+
+//-----------------------------------------------------------------------------
+// @NMRiH - Felis: Basic nav area construct, acts as a proxy for actual nav data
+//-----------------------------------------------------------------------------
+class CScriptNavArea
+{
+public:
+	CScriptNavArea( const CNavArea *pSource )
+	{
+		m_CachedID = pSource ? pSource->GetID() : 0xFFFFFFFF;
+		m_hScriptInstance = g_pScriptVM->RegisterInstance( this );
+	}
+
+	~CScriptNavArea()
+	{
+		if ( m_hScriptInstance && g_pScriptVM )
+		{
+			g_pScriptVM->RemoveInstance( m_hScriptInstance );
+			m_hScriptInstance = NULL;
+		}
+	}
+
+	HSCRIPT GetScriptInstance() const { return m_hScriptInstance; }
+
+	void AddIncomingConnection( const HSCRIPT hArea, const int dir ) const
+	{
+		CNavArea *pSourceArea = HandleToArea( hArea );
+
+		if ( pSourceArea )
+		{
+			GetArea()->AddIncomingConnection( pSourceArea, GetSafeNavDirType( dir ) );
+		}
+	}
+
+	Vector ComputeClosestPointInPortal( const HSCRIPT hTo, const int dir, const Vector &vecFromPos ) const
+	{
+		const CNavArea *pToArea = HandleToArea( hTo );
+
+		if ( pToArea )
+		{
+			const CNavArea *pThisArea = GetArea();
+
+			Vector vecClosePos;
+			pThisArea->ComputeClosestPointInPortal( pToArea, GetSafeNavDirType( dir ), vecFromPos, &vecClosePos );
+
+			return vecClosePos;
+		}
+
+		return vec3_origin;
+	}
+
+	int ComputeDirection( Vector vecPoint ) const { return GetArea()->ComputeDirection( &vecPoint ); }
+
+	void ConnectTo( const HSCRIPT hArea, const int dir ) const
+	{
+		CNavArea *pArea = HandleToArea( hArea );
+
+		if ( pArea )
+		{
+			GetArea()->ConnectTo( pArea, GetSafeNavDirType( dir ) );
+		}
+	}
+
+	bool Contains( const HSCRIPT hArea ) const
+	{
+		const CNavArea *pArea = HandleToArea( hArea );
+
+		if ( pArea )
+		{
+			return GetArea()->Contains( pArea );
+		}
+
+		return false;
+	}
+
+	bool ContainsOrigin( const Vector &vecPoint ) const { return GetArea()->Contains( vecPoint ); }
+
+	void Disconnect( const HSCRIPT hArea ) const
+	{
+		CNavArea *pArea = HandleToArea( hArea );
+
+		if ( pArea )
+		{
+			GetArea()->Disconnect( pArea );
+		}
+	}
+
+	// NOTE: NMRiH specific method!
+	Vector FindRandomSpot() const { return GetArea()->GetRandomPointInArea(); }
+
+	HSCRIPT GetAdjacentArea( const int dir, const int n ) const { return ToAreaHandle( GetArea()->GetAdjacentArea( GetSafeNavDirType( dir ), n ) ); }
+	void GetAdjacentAreas( const int dir, const HSCRIPT hTable ) const { FillTableWithConnectedAreas( GetArea()->GetAdjacentAreas( GetSafeNavDirType( dir ) ), hTable ); }
+	int GetAdjacentCount( const int dir ) const { return GetArea()->GetAdjacentCount( GetSafeNavDirType( dir ) ); }
+
+	int GetAttributes() const { return GetArea()->GetAttributes(); }
+
+	float GetAvoidanceObstacleHeight() const { return GetArea()->GetAvoidanceObstacleHeight(); }
+
+	Vector GetCenter() const { return GetArea()->GetCenter(); }
+	Vector GetCorner( const int corner ) const { return GetArea()->GetCorner( GetSafeNavCornerType( corner ) ); }
+
+	float GetDistanceSquaredToPoint( const Vector &vecPos ) const { return GetArea()->GetDistanceSquaredToPoint( vecPos ); }
+
+	int GetID() const { return static_cast<int>( m_CachedID ); }
+
+	void GetIncomingConnections( const int dir, const HSCRIPT hTable ) const { FillTableWithConnectedAreas( GetArea()->GetIncomingConnections( GetSafeNavDirType( dir ) ), hTable ); }
+
+	HSCRIPT GetParent() const { return ToAreaHandle( GetArea()->GetParent() ); }
+	int GetParentHow() const { return GetArea()->GetParentHow(); }
+
+	int GetPlayerCount( const int team ) const { return GetArea()->GetPlayerCount( team ); }
+
+	HSCRIPT GetRandomAdjacentArea( const int dir ) const { return ToAreaHandle( GetArea()->GetRandomAdjacentArea( GetSafeNavDirType( dir ) ) ); }
+
+	float GetSizeX() const { return GetArea()->GetSizeX(); }
+	float GetSizeY() const { return GetArea()->GetSizeY(); }
+	float GetZ( const Vector &vecPos ) const { return GetArea()->GetZ( vecPos ); }
+
+	bool HasAttributes( const int bits ) const { return GetArea()->HasAttributes( bits ); }
+	bool HasAvoidanceObstacle( const float flMaxHeight ) const { return GetArea()->HasAvoidanceObstacle( flMaxHeight ); }
+
+	bool IsBlocked( const int team, const bool bIgnoreNavBlockers ) const { return GetArea()->IsBlocked( team, bIgnoreNavBlockers ); }
+	bool IsCompletelyVisibleToTeam( const int team ) const { return GetArea()->IsCompletelyVisibleToTeam( team ); }
+
+	bool IsConnected( const HSCRIPT hArea, const int dir ) const
+	{
+		const CNavArea *pArea = HandleToArea( hArea );
+
+		if ( pArea )
+		{
+			return GetArea()->IsConnected( pArea, GetSafeNavDirType( dir ) );
+		}
+
+		return false;
+	}
+
+	bool IsCoplanar( const HSCRIPT hArea ) const
+	{
+		const CNavArea *pArea = HandleToArea( hArea );
+
+		if ( pArea )
+		{
+			return GetArea()->IsCoplanar( pArea );
+		}
+
+		return false;
+	}
+
+	bool IsDamaging() const { return GetArea()->IsDamaging(); }
+	bool IsDegenerate() const { return GetArea()->IsDegenerate(); }
+	bool IsEdge( const int dir ) const { return GetArea()->IsEdge( GetSafeNavDirType( dir ) ); }
+	bool IsFlat() const { return GetArea()->IsFlat(); }
+
+	bool IsOverlapping( const HSCRIPT hArea ) const
+	{
+		const CNavArea *pArea = HandleToArea( hArea );
+
+		if ( pArea )
+		{
+			return GetArea()->IsOverlapping( pArea );
+		}
+
+		return false;
+	}
+
+	bool IsPotentiallyVisibleToTeam( const int team ) const { return GetArea()->IsPotentiallyVisibleToTeam( team ); }
+	bool IsRoughlySquare() const { return GetArea()->IsRoughlySquare(); }
+	bool IsUnderwater() const { return GetArea()->IsUnderwater(); }
+	bool IsVisible( const Vector &vecPoint ) const { return GetArea()->IsVisible( vecPoint ); }
+
+	void MarkAsBlocked( const int team ) const { GetArea()->MarkAsBlocked( team, NULL ); }
+	void MarkAsDamaging( const float flDuration ) const { GetArea()->MarkAsDamaging( flDuration ); }
+	void MarkObstacleToAvoid( const float flHeight ) const { GetArea()->MarkObstacleToAvoid( flHeight ); }
+
+	void RemoveAttributes( const int bits ) const { GetArea()->RemoveAttributes( bits ); }
+	void RemoveOrthogonalConnections( const int dir ) const { GetArea()->RemoveOrthogonalConnections( GetSafeNavDirType( dir ) ); }
+
+	void SetAttributes( const int bits ) const { GetArea()->SetAttributes( bits ); }
+
+	void UnblockArea() const { GetArea()->UnblockArea(); }
+
+protected:
+	CNavArea *GetArea() const
+	{
+		return CScriptNavAreaCollector::GetArea( this );
+	}
+
+	static HSCRIPT ToAreaHandle( const CNavArea *pArea )
+	{
+		return g_ScriptNavAreaCollector->GetScriptInstance( pArea );
+	}
+
+	static CNavArea *HandleToArea( const HSCRIPT hArea )
+	{
+		const CScriptNavArea *pScript = HScriptToClass<CScriptNavArea>( hArea );
+
+		if ( !pScript )
+		{
+			return NULL;
+		}
+
+		return CScriptNavAreaCollector::GetArea( pScript );
+	}
+
+	static NavDirType GetSafeNavDirType( const int dir )
+	{
+		if ( dir < 0 || dir > NUM_DIRECTIONS )
+		{
+			Assert( 0 );
+			return NORTH;
+		}
+
+		return static_cast<NavDirType>( dir );
+	}
+
+	static NavCornerType GetSafeNavCornerType( const int corner )
+	{
+		if ( corner < 0 || corner > NUM_CORNERS )
+		{
+			Assert( 0 );
+			return NORTH_WEST;
+		}
+
+		return static_cast<NavCornerType>( corner );
+	}
+
+	static void FillTableWithConnectedAreas( const NavConnectVector *pAreas, const HSCRIPT hTable )
+	{
+		if ( !pAreas )
+		{
+			return;
+		}
+
+		for ( int i = 0; i < pAreas->Count(); ++i )
+		{
+			const NavConnect &connectedArea = pAreas->Element( i );
+
+			// TODO: Missing keys? Investigate how other games do this
+			char szKeyName[64];
+			V_sprintf_safe( szKeyName, "area%d", connectedArea.id );
+
+			g_pScriptVM->SetValue( hTable, szKeyName, ToAreaHandle( connectedArea.area ) );
+		}
+	}
+
+private:
+	unsigned int m_CachedID;
+	HSCRIPT m_hScriptInstance;
+};
+
+BEGIN_SCRIPTDESC_ROOT( CScriptNavArea, "Rectangular region defining a walkable area in the environment." )
+	DEFINE_SCRIPTFUNC( AddIncomingConnection, "The area 'source' is connected to us along our 'incomingEdgeDir' edge." )
+	DEFINE_SCRIPTFUNC( ComputeClosestPointInPortal, "Compute closest point within the 'portal' between to adjacent areas." )
+	DEFINE_SCRIPTFUNC( ComputeDirection, "Returns direction from this area to the given point." )
+	DEFINE_SCRIPTFUNC( ConnectTo, "Connect this area to given area in given direction." )
+	DEFINE_SCRIPTFUNC( Contains, "Returns true if area completely contains other area." )
+	DEFINE_SCRIPTFUNC( ContainsOrigin, "Returns true if given point is on or above this area, but no others" )
+	DEFINE_SCRIPTFUNC( Disconnect, "Disconnect this area from given area." )
+	DEFINE_SCRIPTFUNC( FindRandomSpot, "" ) // NOTE: NMRiH specific method!
+	DEFINE_SCRIPTFUNC( GetAdjacentArea, "Returns number of connected areas in given direction." )
+	DEFINE_SCRIPTFUNC( GetAttributes, "" )
+	DEFINE_SCRIPTFUNC( GetAvoidanceObstacleHeight, "Returns the maximum height of the obstruction above the ground." )
+	DEFINE_SCRIPTFUNC( GetCenter, "" )
+	DEFINE_SCRIPTFUNC( GetCorner, "Returns the coordinates of the area's corner." )
+	DEFINE_SCRIPTFUNC( GetDistanceSquaredToPoint, "Returns shortest distance squared between point and this area." )
+	DEFINE_SCRIPTFUNC( GetID, "Returns this area's unique ID." )
+	DEFINE_SCRIPTFUNC( GetIncomingConnections, "Get areas connected TO this area by a ONE-WAY link (i.e. we have no connection back to them)." )
+	DEFINE_SCRIPTFUNC( GetParent, "Returns the area just prior to this on the search path." )
+	DEFINE_SCRIPTFUNC( GetParentHow, "Returns nav traverse type on how we get from parent to us." )
+	DEFINE_SCRIPTFUNC( GetPlayerCount, "Returns number of players of given team currently within this area (team of zero means any/all)." )
+	DEFINE_SCRIPTFUNC( GetRandomAdjacentArea, "" )
+	DEFINE_SCRIPTFUNC( GetSizeX, "" )
+	DEFINE_SCRIPTFUNC( GetSizeY, "" )
+	DEFINE_SCRIPTFUNC( GetZ, "Returns Z of area at (x,y) of 'pos', trilinear interpolation of Z values at quad edges, note that pos.z is not used." )
+	DEFINE_SCRIPTFUNC( HasAttributes, "" )
+	DEFINE_SCRIPTFUNC( HasAvoidanceObstacle, "Returns true if there is a large, immobile object obstructing this area." )
+	DEFINE_SCRIPTFUNC( IsBlocked, "Returns true if area is blocked, with parameters of team ID and boolean for ignoring nav blockers." )
+	DEFINE_SCRIPTFUNC( IsCompletelyVisibleToTeam, "Returns true if given area is completely visible from somewhere in this area by someone on the team." )
+	DEFINE_SCRIPTFUNC( IsConnected, "Returns true if given area is connected in given direction, if dir == NUM_DIRECTIONS, check all directions (direction is unknown)." )
+	DEFINE_SCRIPTFUNC( IsCoplanar, "Returns true if this area and given area are approximately co-planar." )
+	DEFINE_SCRIPTFUNC( IsDamaging, "Returns true if continuous damage (i.e. fire) is in this area." )
+	DEFINE_SCRIPTFUNC( IsDegenerate, "Returns true if this area is badly formed." )
+	DEFINE_SCRIPTFUNC( IsEdge, "Returns true if there are no bi-directional links on the given side." )
+	DEFINE_SCRIPTFUNC( IsFlat, "Returns true if this area is approximately flat." )
+	DEFINE_SCRIPTFUNC( IsOverlapping, "Returns true if 'area' overlaps our 2D extents." )
+	DEFINE_SCRIPTFUNC( IsPotentiallyVisibleToTeam, "Returns true if any portion of this area is visible to anyone on the given team." )
+	DEFINE_SCRIPTFUNC( IsRoughlySquare, "Returns true if this area is approximately square." )
+	DEFINE_SCRIPTFUNC( IsUnderwater, "" )
+	DEFINE_SCRIPTFUNC( IsVisible, "Returns true if area is visible from the given eyepoint." )
+	DEFINE_SCRIPTFUNC( MarkAsBlocked, "An entity can force a nav area to be blocked." )
+	DEFINE_SCRIPTFUNC( MarkAsDamaging, "Mark this area is damaging for the next 'duration' seconds." )
+	DEFINE_SCRIPTFUNC( MarkObstacleToAvoid, "" )
+	DEFINE_SCRIPTFUNC( RemoveAttributes, "" )
+	DEFINE_SCRIPTFUNC( RemoveOrthogonalConnections, "Removes all connections in directions to left and right of specified direction." )
+	DEFINE_SCRIPTFUNC( SetAttributes, "" )
+	DEFINE_SCRIPTFUNC( UnblockArea, "Clear blocked status for the given team(s)." )
+END_SCRIPTDESC();
+
+//-----------------------------------------------------------------------------
+// @NMRiH - Felis: Nav area script instance collector
+//-----------------------------------------------------------------------------
+
+bool CScriptNavAreaCollector::Init()
+{
+	SetDefLessFunc( m_mapScriptNavAreas );
+	return true;
+}
+
+void CScriptNavAreaCollector::Shutdown()
+{
+	m_mapScriptNavAreas.PurgeAndDeleteElements();
+}
+
+void CScriptNavAreaCollector::LevelShutdownPostEntity()
+{
+	m_mapScriptNavAreas.PurgeAndDeleteElements();
+}
+
+HSCRIPT CScriptNavAreaCollector::Register( const CNavArea *pArea )
+{
+	CScriptNavArea *pNewArea = new CScriptNavArea( pArea );
+	m_mapScriptNavAreas.Insert( pNewArea->GetID(), pNewArea );
+	return pNewArea->GetScriptInstance();
+}
+
+CScriptNavArea *CScriptNavAreaCollector::Get( const CNavArea *pArea )
+{
+	return pArea ? GetByID( pArea->GetID() ) : NULL;
+}
+
+CScriptNavArea *CScriptNavAreaCollector::GetByID( const unsigned int id )
+{
+	const unsigned int idx = m_mapScriptNavAreas.Find( id );
+
+	if ( idx == m_mapScriptNavAreas.InvalidIndex() )
+		return NULL;
+
+	return m_mapScriptNavAreas[idx];
+}
+
+CNavArea *CScriptNavAreaCollector::GetArea( const CScriptNavArea *pScript )
+{
+	return pScript ? TheNavMesh->GetNavAreaByID( pScript->GetID() ) : NULL;
+}
+
+// Returns script instance for given nav area, registers new when not found
+HSCRIPT CScriptNavAreaCollector::GetScriptInstance( const CNavArea *pArea )
+{
+	if ( !pArea )
+	{
+		return NULL;
+	}
+
+	const CScriptNavArea *pFound = Get( pArea );
+
+	if ( !pFound )
+	{
+		return Register( pArea );
+	}
+
+	return pFound->GetScriptInstance();
+}
+
+//-----------------------------------------------------------------------------
+// @NMRiH - Felis: Basic nav mesh interface
+//-----------------------------------------------------------------------------
+class CScriptNavMesh
+{
+public:
+	HSCRIPT GetNavArea( const Vector &vecOrigin, const float flBeneath )
+	{
+		return g_ScriptNavAreaCollector->GetScriptInstance( TheNavMesh->GetNavArea( vecOrigin, flBeneath ) );
+	}
+
+	HSCRIPT GetNavAreaByID( const int areaID )
+	{
+		return g_ScriptNavAreaCollector->GetScriptInstance( TheNavMesh->GetNavAreaByID( areaID ) );
+	}
+
+	int GetNavAreaCount()
+	{
+		return static_cast<int>( TheNavMesh->GetNavAreaCount() );
+	}
+
+	HSCRIPT GetNearestNavArea( const Vector &vecOrigin, const float flMaxDist, const bool bCheckLOS, const bool bCheckGround )
+	{
+		// Note: anyZ is unused
+		return g_ScriptNavAreaCollector->GetScriptInstance( TheNavMesh->GetNearestNavArea( vecOrigin, false, flMaxDist, bCheckLOS, bCheckGround ) );
+	}
+
+	void RegisterAvoidanceObstacle( const HSCRIPT hEntity )
+	{
+		// See if the entity implements the corresponding interface
+		INavAvoidanceObstacle *pObstacle = dynamic_cast<INavAvoidanceObstacle *>( ToEnt( hEntity ) );
+
+		if ( !pObstacle )
+		{
+			return;
+		}
+
+		TheNavMesh->RegisterAvoidanceObstacle( pObstacle );
+	}
+
+	void UnregisterAvoidanceObstacle( const HSCRIPT hEntity )
+	{
+		INavAvoidanceObstacle *pObstacle = dynamic_cast<INavAvoidanceObstacle *>( ToEnt( hEntity ) );
+
+		if ( !pObstacle )
+		{
+			return;
+		}
+
+		TheNavMesh->UnregisterAvoidanceObstacle( pObstacle );
+	}
+
+	//-----------------------------------------------------------------------------
+	// Path finding methods
+
+	bool ScriptNavAreaBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector &vecGoalPos,
+		const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false )
+	{
+		ShortestPathCost costFunc;
+		return InternalScriptNavAreaBuildPath( hStartArea, hGoalArea, vecGoalPos,
+			costFunc, NULL, flMaxPathLength, teamID, bIgnoreNavBlockers );
+	}
+
+	bool GetNavAreasFromBuildPath( const HSCRIPT hStartArea, const HSCRIPT hEndArea, const Vector &vecGoalPos,
+		const float flMaxPathLength, const int teamID, const bool bIgnoreNavBlockers, const HSCRIPT hTable )
+	{
+		if ( !hTable )
+		{
+			return false;
+		}
+
+		CNavArea *pGoalArea = NULL;
+
+		ShortestPathCost costFunc;
+		const bool bSuccess = InternalScriptNavAreaBuildPath( hStartArea, hEndArea,
+			vecGoalPos, costFunc, NULL, flMaxPathLength, teamID, bIgnoreNavBlockers,
+			NULL, &pGoalArea );
+
+		if ( !bSuccess )
+		{
+			return false;
+		}
+
+		int areaIndex = 0;
+		for ( const CNavArea *pArea = pGoalArea; pArea && pArea->GetParent(); pArea = pArea->GetParent() )
+		{
+			char szKeyName[64];
+			V_sprintf_safe( szKeyName, "area%d", areaIndex );
+			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector->GetScriptInstance( pArea->GetParent() ) );
+
+			areaIndex++;
+		}
+
+		return bSuccess;
+	}
+
+private:
+	template< typename CostFunctor >
+	bool InternalScriptNavAreaBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector &vecGoalPos,
+		CostFunctor &costFunc, CNavArea **ppClosestArea = NULL,
+		const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false,
+		CNavArea **ppResolvedStartArea = NULL, CNavArea **ppResolvedGoalArea = NULL )
+	{
+		CNavArea *pStartArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hStartArea ) );
+		if ( !pStartArea )
+		{
+			DevWarning( 2, "ScriptNavAreaBuildPath: Failed to get start area!\n" );
+			return false;
+		}
+
+		CNavArea *pGoalArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hGoalArea ) );
+		if ( !pGoalArea )
+		{
+			DevWarning( 2, "ScriptNavAreaBuildPath: Failed to get goal area!\n" );
+			return false;
+		}
+
+		if ( ppResolvedStartArea )
+			*ppResolvedStartArea = pStartArea;
+
+		if ( ppResolvedGoalArea )
+			*ppResolvedGoalArea = pGoalArea;
+
+		return NavAreaBuildPath( pStartArea, pGoalArea, &vecGoalPos,
+			costFunc, ppClosestArea, flMaxPathLength, teamID, bIgnoreNavBlockers );
+	}
+
+} g_ScriptNavMesh;
+
+BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptNavMesh, "CNavMesh", SCRIPT_SINGLETON "An interface for nav areas." )
+	DEFINE_SCRIPTFUNC( GetNavArea, "Given a position, return the nav area that IsOverlapping and is *immediately* beneath it." )
+	DEFINE_SCRIPTFUNC( GetNavAreaByID, "Given an ID, return the associated area." )
+	DEFINE_SCRIPTFUNC( GetNavAreaCount, "Returns total number of nav areas." )
+	DEFINE_SCRIPTFUNC( GetNearestNavArea, "Given a position in the world, return the nav area that is closest, and at the same height, or beneath it. Used to find initial area if we start off of the mesh." )
+	DEFINE_SCRIPTFUNC( RegisterAvoidanceObstacle, "" )
+	DEFINE_SCRIPTFUNC( UnregisterAvoidanceObstacle, "" )
+	DEFINE_SCRIPTFUNC_NAMED( ScriptNavAreaBuildPath, "NavAreaBuildPath", "Returns true if a path exists. If 'endArea' is null, will compute a path as close as possible to 'goalPos'." )
+	DEFINE_SCRIPTFUNC( GetNavAreasFromBuildPath, "Fills table with areas from a path. Returns whether a path was found. If 'endArea' is null, will compute a path as close as possible to 'goalPos'." )
+END_SCRIPTDESC();
+
+#endif // @NMRiH - Felis: End nav mesh stuff
 
 void RegisterScriptSingletons()
 {
@@ -3402,6 +3915,9 @@ void RegisterScriptSingletons()
 	/*
 	g_ScriptNetMsg->InitPostVM();
 	*/
+
+	// @NMRiH - Felis: Nav mesh
+	g_pScriptVM->RegisterInstance( &g_ScriptNavMesh, "NavMesh" );
 
 	// @NMRiH - Felis: Our additions go here!
 	g_pScriptVM->RegisterInstance( NMRiHGameRules(), "GameRules" );

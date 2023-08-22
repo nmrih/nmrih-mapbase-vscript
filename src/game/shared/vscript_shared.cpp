@@ -102,8 +102,17 @@ HSCRIPT VScriptCompileScript( const char *pszScriptName, bool bWarnMissing )
 		if( !bResult )
 #endif
 		{
+			// @NMRiH - Felis: Wut?
+			Warning( "Script not found (%s)\n", scriptPath.Get() );
+			/*
 			Warning( "Script not found (%s) \n", scriptPath.operator const char *() );
+			*/
+
+			// @NMRiH - Felis: Fix assert
+			AssertMsg( false, "Error running script" );
+			/*
 			Assert( "Error running script" );
+			*/
 		}
 
 		pBase = (const char *) bufferScript.Base();
@@ -120,8 +129,17 @@ HSCRIPT VScriptCompileScript( const char *pszScriptName, bool bWarnMissing )
 	HSCRIPT hScript = g_pScriptVM->CompileScript( pBase, pszFilename );
 	if ( !hScript )
 	{
+		// @NMRiH - Felis: Wut?
+		Warning( "FAILED to compile and execute script file named %s\n", scriptPath.Get() );
+		/*
 		Warning( "FAILED to compile and execute script file named %s\n", scriptPath.operator const char *() );
+		*/
+
+		// @NMRiH - Felis: Fix assert
+		AssertMsg( false, "Error running script" );
+		/*
 		Assert( "Error running script" );
+		*/
 	}
 	return hScript;
 }
@@ -171,7 +189,12 @@ bool VScriptRunScript( const char *pszScriptName, HSCRIPT hScope, bool bWarnMiss
 		if ( !bSuccess )
 		{
 			Warning( "Error running script named %s\n", pszScriptName );
+
+			// @NMRiH - Felis: Fix assert
+			AssertMsg( false, "Error running script" );
+			/*
 			Assert( "Error running script" );
+			*/
 		}
 	}
 	g_ScriptServerRunScriptDepth--;

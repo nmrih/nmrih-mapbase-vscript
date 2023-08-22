@@ -11,6 +11,9 @@
 #pragma once
 #endif
 
+// @NMRiH - Felis
+class CScriptNavAreaCollector;
+
 void RegisterScriptSingletons();
 
 
@@ -147,6 +150,31 @@ public:
 };
 
 extern CNetMsgScriptHelper *g_ScriptNetMsg;
+
+// @NMRiH - Felis: Script nav area collector
+class CScriptNavArea;
+class CNavArea;
+
+class CScriptNavAreaCollector : public CAutoGameSystem
+{
+public:
+	CScriptNavAreaCollector( const char *name ) : CAutoGameSystem( name ) {}
+
+	bool Init() OVERRIDE;
+	void Shutdown() OVERRIDE;
+	void LevelShutdownPostEntity() OVERRIDE;
+
+	HSCRIPT Register( const CNavArea *pArea );
+
+	CScriptNavArea *Get( const CNavArea *pArea );
+	CScriptNavArea *GetByID( unsigned int id );
+	static CNavArea *GetArea(const CScriptNavArea *pScript );
+
+	HSCRIPT GetScriptInstance( const CNavArea *pArea );
+
+private:
+	CUtlMap<unsigned int, CScriptNavArea*, unsigned int> m_mapScriptNavAreas;
+};
 
 #ifdef CLIENT_DLL
 void VScriptSaveRestoreUtil_OnVMRestore();

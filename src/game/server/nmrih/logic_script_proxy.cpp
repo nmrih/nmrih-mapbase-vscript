@@ -1,6 +1,6 @@
 //========= Copyright No More Room in Hell Team, All rights reserved. =========//
 //
-// Purpose: 
+// Purpose: Script proxy, an entity bridge between VScript and server plugins
 //
 //=============================================================================//
 
@@ -33,7 +33,6 @@ public:
 	DECLARE_ENT_SCRIPTDESC();
 
 	CNMRiHLogicScriptProxy();
-	~CNMRiHLogicScriptProxy() {}
 
 	virtual void RunFunction( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_VOID ); }
 	virtual void RunFunctionString( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_STRING ); }
@@ -64,7 +63,7 @@ private:
 	void SetProxyBufferString( const char *pszString );
 	void SetProxyBufferInt( int value );
 	void SetProxyBufferFloat( float flValue );
-	void SetProxyBufferVector( Vector vec );
+	void SetProxyBufferVector( const Vector &vec );
 	void SetProxyBufferBool( bool bValue );
 	void SetProxyBufferEHandle( HSCRIPT hEntity );
 
@@ -233,7 +232,7 @@ void CNMRiHLogicScriptProxy::SetProxyBufferFloat( const float flValue )
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferVector( const Vector vec )
+void CNMRiHLogicScriptProxy::SetProxyBufferVector( const Vector &vec )
 {
 	m_vecReturnValue = vec;
 }

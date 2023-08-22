@@ -415,12 +415,12 @@ static float GetEntityIOEventTimeLeft( int event )
 #endif // MAPBASE_VSCRIPT
 
 // @NMRiH - Felis: Multiplayer additions
-HSCRIPT PlayerByIndex( int index )
+HSCRIPT PlayerByIndex( const int index )
 {
 	return ToHScript( UTIL_PlayerByIndex( index ) );
 }
 
-HSCRIPT PlayerByUserId( int userid )
+HSCRIPT PlayerByUserId( const int userid )
 {
 	return ToHScript( UTIL_PlayerByUserId( userid ) );
 }
@@ -431,7 +431,7 @@ HSCRIPT PlayerByName( const char *pszName )
 }
 
 // @NMRiH - Felis: Center print
-void ScriptCenterPrintWithParams( HSCRIPT hPlayer, const char *pszMsgName, const char *pszParam1, const char *pszParam2, const char *pszParam3, const char *pszParam4 )
+void ScriptCenterPrintWithParams( const HSCRIPT hPlayer, const char *pszMsgName, const char *pszParam1, const char *pszParam2, const char *pszParam3, const char *pszParam4 )
 {
 	CBasePlayer *pPlayer = ToBasePlayer( ToEnt( hPlayer ) );
 	if ( !pPlayer )
@@ -448,7 +448,7 @@ void ScriptCenterPrintAllWithParams( const char *pszMsgName, const char *pszPara
 	UTIL_CenterPrintAll( pszMsgName, pszParam1, pszParam2, pszParam3, pszParam4 );
 }
 
-void ScriptCenterPrint( HSCRIPT hPlayer, const char *pszMsgName )
+void ScriptCenterPrint( const HSCRIPT hPlayer, const char *pszMsgName )
 {
 	ScriptCenterPrintWithParams( hPlayer, pszMsgName, NULL, NULL, NULL, NULL );
 }
