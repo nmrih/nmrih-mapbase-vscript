@@ -25,14 +25,14 @@ enum ScriptProxyReturnType_t
 };
 
 //-----------------------------------------------------------------------------
-class CNMRiHLogicScriptProxy : public CLogicalEntity
+class CLogicScriptProxy : public CLogicalEntity
 {
 public:
-	DECLARE_CLASS( CNMRiHLogicScriptProxy, CLogicalEntity );
+	DECLARE_CLASS( CLogicScriptProxy, CLogicalEntity );
 	DECLARE_DATADESC();
 	DECLARE_ENT_SCRIPTDESC();
 
-	CNMRiHLogicScriptProxy();
+	CLogicScriptProxy();
 
 	virtual void RunFunction( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_VOID ); }
 	virtual void RunFunctionString( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_STRING ); }
@@ -83,10 +83,10 @@ private:
 };
 
 //-----------------------------------------------------------------------------
-LINK_ENTITY_TO_CLASS( logic_script_proxy, CNMRiHLogicScriptProxy );
+LINK_ENTITY_TO_CLASS( logic_script_proxy, CLogicScriptProxy );
 
 //-----------------------------------------------------------------------------
-BEGIN_DATADESC( CNMRiHLogicScriptProxy )
+BEGIN_DATADESC( CLogicScriptProxy )
 	DEFINE_FIELD( m_iszReturnValue, FIELD_STRING ),
 	DEFINE_FIELD( m_iReturnValue, FIELD_INTEGER ),
 	DEFINE_FIELD( m_flReturnValue, FIELD_FLOAT ),
@@ -106,7 +106,7 @@ BEGIN_DATADESC( CNMRiHLogicScriptProxy )
 END_DATADESC()
 
 //-----------------------------------------------------------------------------
-BEGIN_ENT_SCRIPTDESC( CNMRiHLogicScriptProxy, CBaseEntity, "Script proxy." )
+BEGIN_ENT_SCRIPTDESC( CLogicScriptProxy, CBaseEntity, "Script proxy, an entity bridge between VScript and server plugins." )
 	DEFINE_SCRIPTFUNC( RunFunction, "Runs an entity script function using a proxy." )
 	DEFINE_SCRIPTFUNC( RunFunctionString, "Runs an entity script function using a proxy, and saves returned string into entprop buffer." )
 	DEFINE_SCRIPTFUNC( RunFunctionInt, "Runs an entity script function using a proxy, and saves returned int into entprop buffer." )
@@ -124,7 +124,7 @@ BEGIN_ENT_SCRIPTDESC( CNMRiHLogicScriptProxy, CBaseEntity, "Script proxy." )
 END_SCRIPTDESC();
 
 //-----------------------------------------------------------------------------
-CNMRiHLogicScriptProxy::CNMRiHLogicScriptProxy()
+CLogicScriptProxy::CLogicScriptProxy()
 {
 	m_iReturnValue = 0;
 	m_flReturnValue = 0.0;
@@ -139,7 +139,7 @@ CNMRiHLogicScriptProxy::CNMRiHLogicScriptProxy()
 }
 
 //-----------------------------------------------------------------------------
-bool CNMRiHLogicScriptProxy::InternalRunFunction( const char *pszScriptText, const ScriptProxyReturnType_t type )
+bool CLogicScriptProxy::InternalRunFunction( const char *pszScriptText, const ScriptProxyReturnType_t type )
 {
 	if ( !ValidateScriptScope() )
 	{
@@ -148,7 +148,7 @@ bool CNMRiHLogicScriptProxy::InternalRunFunction( const char *pszScriptText, con
 
 	FlushProxyBuffer();
 
-	const char *pszDebugName = "CNMRiHLogicScriptProxy::InternalRunFunction";
+	const char *pszDebugName = "CLogicScriptProxy::InternalRunFunction";
 
 	char szRun[512];
 	switch ( type )
@@ -212,7 +212,7 @@ bool CNMRiHLogicScriptProxy::InternalRunFunction( const char *pszScriptText, con
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferString( const char *pszString )
+void CLogicScriptProxy::SetProxyBufferString( const char *pszString )
 {
 	// Save to buffer
 	V_strcpy_safe( m_szBuffer, pszString );
@@ -220,31 +220,31 @@ void CNMRiHLogicScriptProxy::SetProxyBufferString( const char *pszString )
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferInt( const int value )
+void CLogicScriptProxy::SetProxyBufferInt( const int value )
 {
 	m_iReturnValue = value;
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferFloat( const float flValue )
+void CLogicScriptProxy::SetProxyBufferFloat( const float flValue )
 {
 	m_flReturnValue = flValue;
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferVector( const Vector &vec )
+void CLogicScriptProxy::SetProxyBufferVector( const Vector &vec )
 {
 	m_vecReturnValue = vec;
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferBool( const bool bValue )
+void CLogicScriptProxy::SetProxyBufferBool( const bool bValue )
 {
 	m_iReturnValue = bValue ? 1 : 0;
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetProxyBufferEHandle( const HSCRIPT hEntity )
+void CLogicScriptProxy::SetProxyBufferEHandle( const HSCRIPT hEntity )
 {
 	m_hReturnValue = HScriptToClass<CBaseEntity>( hEntity );
 	if ( !m_hReturnValue )
@@ -254,7 +254,7 @@ void CNMRiHLogicScriptProxy::SetProxyBufferEHandle( const HSCRIPT hEntity )
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::FlushProxyBuffer()
+void CLogicScriptProxy::FlushProxyBuffer()
 {
 	m_szBuffer[0] = '\0';
 	m_iszReturnValue = MAKE_STRING( m_szBuffer ); // Should never be null!
@@ -265,7 +265,7 @@ void CNMRiHLogicScriptProxy::FlushProxyBuffer()
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::SetTargetEntity( CBaseEntity *pEntity )
+void CLogicScriptProxy::SetTargetEntity( CBaseEntity *pEntity )
 {
 	if ( !ValidateScriptScope() )
 	{
@@ -274,7 +274,7 @@ void CNMRiHLogicScriptProxy::SetTargetEntity( CBaseEntity *pEntity )
 
 	if ( m_hTargetEntity != pEntity )
 	{
-		const char *pszDebugName = "CNMRiHLogicScriptProxy::SetTargetEntity";
+		const char *pszDebugName = "CLogicScriptProxy::SetTargetEntity";
 
 		char szRun[64];
 		V_sprintf_safe( szRun, "hEnt <- EntIndexToHScript(%d)\n", pEntity->entindex() );
@@ -289,49 +289,49 @@ void CNMRiHLogicScriptProxy::SetTargetEntity( CBaseEntity *pEntity )
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunction( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunction( inputdata_t &inputdata )
 {
 	RunFunction( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunctionString( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunctionString( inputdata_t &inputdata )
 {
 	RunFunctionString( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunctionInt( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunctionInt( inputdata_t &inputdata )
 {
 	RunFunctionInt( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunctionFloat( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunctionFloat( inputdata_t &inputdata )
 {
 	RunFunctionFloat( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunctionVector( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunctionVector( inputdata_t &inputdata )
 {
 	RunFunctionVector( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunctionBool( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunctionBool( inputdata_t &inputdata )
 {
 	RunFunctionBool( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputRunFunctionEHandle( inputdata_t &inputdata )
+void CLogicScriptProxy::InputRunFunctionEHandle( inputdata_t &inputdata )
 {
 	RunFunctionEHandle( inputdata.value.String() );
 }
 
 //-----------------------------------------------------------------------------
-void CNMRiHLogicScriptProxy::InputSetTargetEntity( inputdata_t &inputdata )
+void CLogicScriptProxy::InputSetTargetEntity( inputdata_t &inputdata )
 {
 	CBaseEntity *pEntity = gEntList.FindEntityByName( NULL, inputdata.value.StringID(), NULL, inputdata.pActivator );
 	if ( pEntity )

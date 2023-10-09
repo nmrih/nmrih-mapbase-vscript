@@ -269,8 +269,120 @@ CON_COMMAND( script, "Run the text as a script" )
 	}
 }
 
+// @NMRiH - Felis: script_execute auto complete
+//-----------------------------------------------------------------------------
+static const char *g_pszVScriptsPath = "scripts\\vscripts";
+static CUtlStringList g_ScriptAutoCompleteCache;
+static int ScriptExec_StringSortFunc( const void *p1, const void *p2 )
+{
+	const char *psz1 = (const char *)p1;
+	const char *psz2 = (const char *)p2;
 
+	return V_stricmp( psz1, psz2 );
+}
+
+//-----------------------------------------------------------------------------
+static void ScriptExec_RecursiveFileSearch( const char *pszCurrent, CUtlStringList &stringList )
+{
+	FileFindHandle_t fileHandle;
+
+	char szPath[520];
+	if ( pszCurrent[0] )
+		V_sprintf_safe( szPath, "%s\\*.*", pszCurrent );
+	else
+		V_sprintf_safe( szPath, "*.*" );
+
+	V_FixSlashes( szPath );
+
+	const char *pszFileName = g_pFullFileSystem->FindFirstEx( szPath, "MOD", &fileHandle );
+	while ( pszFileName )
+	{
+		if ( pszFileName[0] != '.' )
+		{
+			char szFullPath[520];
+			if ( pszCurrent[0] )
+				V_sprintf_safe( szFullPath, "%s\\%s", pszCurrent, pszFileName );
+			else
+				V_sprintf_safe( szFullPath, "%s", pszFileName );
+
+			V_FixSlashes( szFullPath );
+
+			if ( g_pFullFileSystem->FindIsDirectory( fileHandle ) )
+			{
+				ScriptExec_RecursiveFileSearch( szFullPath, stringList );
+			}
+			else
+			{
+				// Only Squirrel is supported in NMRiH
+				if ( FStrEq( V_GetFileExtension( szFullPath ), "nut" ) )
+				{
+					// Skip scripts/vscripts path and strip extension, can easily hit char limit otherwise
+					char szStripped[520];
+					V_StripExtension( szFullPath, szStripped, sizeof( szStripped ) );
+					stringList.CopyAndAddToTail( szStripped + V_strlen( g_pszVScriptsPath ) + 1 );
+				}
+			}
+		}
+
+		pszFileName = g_pFullFileSystem->FindNext( fileHandle );
+	}
+
+	g_pFullFileSystem->FindClose( fileHandle );
+}
+
+//-----------------------------------------------------------------------------
+int ScriptExec_AutoComplete( const char *pszPartial, char szCommands[COMMAND_COMPLETION_MAXITEMS][COMMAND_COMPLETION_ITEM_LENGTH] )
+{
+	// Refresh cache
+	if ( g_ScriptAutoCompleteCache.IsEmpty() )
+	{
+		ScriptExec_RecursiveFileSearch( g_pszVScriptsPath, g_ScriptAutoCompleteCache );
+	}
+
+	// Find the first space in our input
+	const char *pszFirstSpace = V_strstr( pszPartial, " " );
+	if ( !pszFirstSpace )
+		return 0;
+
+	const int commandLength = pszFirstSpace - pszPartial;
+
+	// Extract the command name from the input
+	char szCommandName[COMMAND_COMPLETION_ITEM_LENGTH];
+	V_StrSlice( pszPartial, 0, commandLength, szCommandName, sizeof( szCommandName ) );
+
+	// Calculate the length of the command string (minus the command name)
+	pszPartial += commandLength + 1;
+	const int partialLength = V_strlen( pszPartial );
+
+	// Iterate all scripts and list them
+	int i = 0;
+	int numMatches = 0;
+	while ( i < g_ScriptAutoCompleteCache.Count() && numMatches < COMMAND_COMPLETION_MAXITEMS )
+	{
+		const char *pszName = g_ScriptAutoCompleteCache[i];
+
+		// Does this match our partial completion?
+		if ( V_strnicmp( pszName, pszPartial, partialLength ) )
+		{
+			++i;
+			continue;
+		}
+
+		V_sprintf_safe( szCommands[numMatches++], "%s %s", szCommandName, pszName );
+		++i;
+	}
+
+	// Sort the commands alphabetically
+	qsort( szCommands, numMatches, COMMAND_COMPLETION_ITEM_LENGTH, ScriptExec_StringSortFunc );
+
+	return numMatches;
+}
+
+// @NMRiH - Felis: Auto-completion
+CON_COMMAND_F_COMPLETION( script_execute, "Run a vscript file", FCVAR_NONE, ScriptExec_AutoComplete )
+/*
 CON_COMMAND( script_execute, "Run a vscript file" )
+*/
 {
 	// @NMRiH - Felis
 #ifndef CLIENT_DLL
@@ -509,6 +621,34 @@ ISaveRestoreBlockHandler *GetVScriptSaveRestoreBlockHandler()
 bool CBaseEntityScriptInstanceHelper::ToString( void *p, char *pBuf, int bufSize )	
 {
 	CBaseEntity *pEntity = (CBaseEntity *)p;
+
+	// @NMRiH - Felis
+	if ( pEntity->GetEntityName() != NULL_STRING )
+	{
+		if ( pEntity->IsEFlagSet( EFL_SERVER_ONLY ) )
+		{
+			V_snprintf( pBuf, bufSize, "([N/A] %s: %s)",
+				pEntity->GetClassname(), STRING( pEntity->GetEntityName() ) );
+		}
+		else
+		{
+			V_snprintf( pBuf, bufSize, "([%d] %s: %s)",
+				pEntity->entindex(), pEntity->GetClassname(), STRING( pEntity->GetEntityName() ) );
+		}
+	}
+	else
+	{
+		if ( pEntity->IsEFlagSet( EFL_SERVER_ONLY ) )
+		{
+			V_snprintf( pBuf, bufSize, "([N/A] %s)", pEntity->GetClassname() );
+		}
+		else
+		{
+			V_snprintf( pBuf, bufSize, "([%d] %s)", pEntity->entindex(), pEntity->GetClassname() );
+		}
+
+	}
+	/*
 #ifdef CLIENT_DLL
 	if ( pEntity->GetEntityName() && pEntity->GetEntityName()[0] )
 #else
@@ -521,11 +661,15 @@ bool CBaseEntityScriptInstanceHelper::ToString( void *p, char *pBuf, int bufSize
 	{
 		V_snprintf( pBuf, bufSize, "([%d] %s)", pEntity->entindex(), pEntity->GetClassname() );
 	}
+	*/
+
 	return true; 
 }
 
 void *CBaseEntityScriptInstanceHelper::BindOnRead( HSCRIPT hInstance, void *pOld, const char *pszId )
 {
+	// @NMRiH - Felis: Reducing bit of overhead since we aren't using save/restore
+	/*
 	int iEntity = g_VScriptSaveRestoreBlockHandler.m_InstanceMap.Find( pszId );
 	if ( iEntity != g_VScriptSaveRestoreBlockHandler.m_InstanceMap.InvalidIndex() )
 	{
@@ -533,6 +677,8 @@ void *CBaseEntityScriptInstanceHelper::BindOnRead( HSCRIPT hInstance, void *pOld
 		pEnt->m_hScriptInstance = hInstance;
 		return pEnt;
 	}
+	*/
+
 	return NULL;
 }
 

@@ -633,5 +633,28 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstant( g_pScriptVM, TEAM_UNASSIGNED, "Index for an unassigned team." );
 	ScriptRegisterConstant( g_pScriptVM, TEAM_SPECTATOR, "Index for spectator team." );
 
+	// @NMRiH - Felis: Nav mesh stuff
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_INVALID, "" );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_CROUCH, "Must crouch to use this node or area." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_JUMP, "Must jump to traverse this area (only used during generation)." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_PRECISE, "Do not adjust for obstacles, just move along area." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_NO_JUMP, "Inhibit discontinuity jumping." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_STOP, "Must stop when entering this area." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_RUN, "Must run to traverse this area." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_WALK, "Must walk to traverse this area." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_AVOID, "Avoid this area unless alternatives are too dangerous." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_TRANSIENT, "Area may become blocked, and should be periodically checked." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_DONT_HIDE, "Area should not be considered for hiding spot generation." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_STAND, "Bots hiding in this area should stand." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_NO_HOSTAGES, "Hostages shouldn't use this area." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_STAIRS, "This area represents stairs, do not attempt to climb or jump them - just walk up." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_NO_MERGE, "Don't merge this area with adjacent areas." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_OBSTACLE_TOP, "This nav area is the climb point on the tip of an obstacle." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_CLIFF, "This nav area is adjacent to a drop of at least CliffHeight." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_NO_ZOMBIE_SPAWN, "Zombies shouldn't spawn here." ); // NMRiH specific!
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_FUNC_COST, "Area has designer specified cost controlled by func_nav_cost entities." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_HAS_ELEVATOR, "Area is in an elevator's path." );
+	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_NAV_BLOCKER, "Area is blocked by nav blocker." );
+
 	RegisterWeaponScriptConstants();
 }

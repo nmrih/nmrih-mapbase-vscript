@@ -155,6 +155,23 @@ extern CNetMsgScriptHelper *g_ScriptNetMsg;
 class CScriptNavArea;
 class CNavArea;
 
+struct ScriptNavAreaPathParams_t
+{
+	ScriptNavAreaPathParams_t( CNavArea **ppClosestArea = NULL,
+		const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false )
+	{
+		m_ppClosestArea = ppClosestArea;
+		m_flMaxPathLength = flMaxPathLength;
+		m_iTeamID = teamID;
+		m_bIgnoreNavBlockers = bIgnoreNavBlockers;
+	}
+
+	CNavArea **m_ppClosestArea;
+	float m_flMaxPathLength;
+	int m_iTeamID;
+	bool m_bIgnoreNavBlockers;
+};
+
 class CScriptNavAreaCollector : public CAutoGameSystem
 {
 public:
@@ -168,7 +185,7 @@ public:
 
 	CScriptNavArea *Get( const CNavArea *pArea );
 	CScriptNavArea *GetByID( unsigned int id );
-	static CNavArea *GetArea(const CScriptNavArea *pScript );
+	static CNavArea *GetArea( const CScriptNavArea *pScript );
 
 	HSCRIPT GetScriptInstance( const CNavArea *pArea );
 

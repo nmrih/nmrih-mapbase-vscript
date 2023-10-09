@@ -2039,10 +2039,15 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CNetMsgScriptHelper, "CNetMsg", SCRIPT_SINGLETON "N
 END_SCRIPTDESC();
 #endif
 
-
+// @NMRiH - Felis
+#define RETURN_IF_CANNOT_DRAW_OVERLAY\
+	if (!debugoverlay || engine->IsPaused())\
+		return;
+/*
 #define RETURN_IF_CANNOT_DRAW_OVERLAY\
 	if (engine->IsPaused())\
 		return;
+*/
 class CDebugOverlayScriptHelper
 {
 public:
@@ -2411,7 +2416,12 @@ public:
 		}
 #endif
 
+		// @NMRiH - Felis
+		if ( debugoverlay )
+			debugoverlay->ClearAllOverlays();
+		/*
 		debugoverlay->ClearAllOverlays();
+		*/
 	}
 
 private:
@@ -3339,8 +3349,8 @@ END_SCRIPTDESC();
 
 // @NMRiH - Felis: Begin nav mesh stuff
 #ifndef CLIENT_DLL
-static CScriptNavAreaCollector ScriptNavAreaCollector( "CScriptNavAreaCollector" );
-CScriptNavAreaCollector *g_ScriptNavAreaCollector = &ScriptNavAreaCollector;
+static CScriptNavAreaCollector s_ScriptNavAreaCollector( "CScriptNavAreaCollector" );
+CScriptNavAreaCollector *g_ScriptNavAreaCollector = &s_ScriptNavAreaCollector;
 
 //-----------------------------------------------------------------------------
 // @NMRiH - Felis: Basic nav area construct, acts as a proxy for actual nav data
@@ -3547,7 +3557,7 @@ protected:
 
 	static NavDirType GetSafeNavDirType( const int dir )
 	{
-		if ( dir < 0 || dir > NUM_DIRECTIONS )
+		if ( dir < 0 || dir >= NUM_DIRECTIONS )
 		{
 			Assert( 0 );
 			return NORTH;
@@ -3558,7 +3568,7 @@ protected:
 
 	static NavCornerType GetSafeNavCornerType( const int corner )
 	{
-		if ( corner < 0 || corner > NUM_CORNERS )
+		if ( corner < 0 || corner >= NUM_CORNERS )
 		{
 			Assert( 0 );
 			return NORTH_WEST;
@@ -3578,7 +3588,6 @@ protected:
 		{
 			const NavConnect &connectedArea = pAreas->Element( i );
 
-			// TODO: Missing keys? Investigate how other games do this
 			char szKeyName[64];
 			V_sprintf_safe( szKeyName, "area%d", connectedArea.id );
 
@@ -3764,7 +3773,8 @@ public:
 	{
 		ShortestPathCost costFunc;
 		return InternalScriptNavAreaBuildPath( hStartArea, hGoalArea, vecGoalPos,
-			costFunc, NULL, flMaxPathLength, teamID, bIgnoreNavBlockers );
+			costFunc,
+			ScriptNavAreaPathParams_t( NULL, flMaxPathLength, teamID, bIgnoreNavBlockers ) );
 	}
 
 	bool GetNavAreasFromBuildPath( const HSCRIPT hStartArea, const HSCRIPT hEndArea, const Vector &vecGoalPos,
@@ -3778,8 +3788,9 @@ public:
 		CNavArea *pGoalArea = NULL;
 
 		ShortestPathCost costFunc;
-		const bool bSuccess = InternalScriptNavAreaBuildPath( hStartArea, hEndArea,
-			vecGoalPos, costFunc, NULL, flMaxPathLength, teamID, bIgnoreNavBlockers,
+		const bool bSuccess = InternalScriptNavAreaBuildPath( hStartArea, hEndArea, vecGoalPos,
+			costFunc,
+			ScriptNavAreaPathParams_t( NULL, flMaxPathLength, teamID, bIgnoreNavBlockers ),
 			NULL, &pGoalArea );
 
 		if ( !bSuccess )
@@ -3794,7 +3805,7 @@ public:
 			V_sprintf_safe( szKeyName, "area%d", areaIndex );
 			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector->GetScriptInstance( pArea->GetParent() ) );
 
-			areaIndex++;
+			++areaIndex;
 		}
 
 		return bSuccess;
@@ -3803,8 +3814,8 @@ public:
 private:
 	template< typename CostFunctor >
 	bool InternalScriptNavAreaBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector &vecGoalPos,
-		CostFunctor &costFunc, CNavArea **ppClosestArea = NULL,
-		const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false,
+		CostFunctor &costFunc,
+		const ScriptNavAreaPathParams_t &params,
 		CNavArea **ppResolvedStartArea = NULL, CNavArea **ppResolvedGoalArea = NULL )
 	{
 		CNavArea *pStartArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hStartArea ) );
@@ -3828,7 +3839,8 @@ private:
 			*ppResolvedGoalArea = pGoalArea;
 
 		return NavAreaBuildPath( pStartArea, pGoalArea, &vecGoalPos,
-			costFunc, ppClosestArea, flMaxPathLength, teamID, bIgnoreNavBlockers );
+			costFunc,
+			params.m_ppClosestArea, params.m_flMaxPathLength, params.m_iTeamID, params.m_bIgnoreNavBlockers );
 	}
 
 } g_ScriptNavMesh;

@@ -50,7 +50,8 @@ static void ScriptColorPrintL( int r, int g, int b, const char *pszMsg )
 	ConColorMsg( 0, clr, "%s\n", pszMsg );
 }
 
-
+// @NMRiH - Felis: Questionable security...
+/*
 //=============================================================================
 //
 // Command Line
@@ -92,6 +93,7 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CGlobalSys, "CGlobalSys", SCRIPT_SINGLETON "GlobalS
 	DEFINE_SCRIPTFUNC( CommandLineCheckFloat, "returns the command line param as a float." )
 	DEFINE_SCRIPTFUNC( CommandLineCheckInt, "returns the command line param as an int." )
 END_SCRIPTDESC();
+*/
 
 // ----------------------------------------------------------------------------
 // KeyValues access - CBaseEntity::ScriptGetKeyFromModel returns root KeyValues
@@ -445,11 +447,17 @@ void RegisterBaseBindings( IScriptVM *pVM )
 	ScriptRegisterFunctionNamed( pVM, ScriptColorPrint, "printc", "Version of print() which takes a color before the message." );
 	ScriptRegisterFunctionNamed( pVM, ScriptColorPrintL, "printcl", "Version of printl() which takes a color before the message." );
 
+	// @NMRiH - Felis: Removed, not sure what's the purpose for this
+	/*
 	ScriptRegisterFunction( pVM, GetCPUUsage, "Get CPU usage percentage." );
+	*/
 
 	//-----------------------------------------------------------------------------
 
+	// @NMRiH - Felis: Questionable security...
+	/*
 	pVM->RegisterInstance( &g_ScriptGlobalSys, "GlobalSys" );
+	*/
 
 	//-----------------------------------------------------------------------------
 
