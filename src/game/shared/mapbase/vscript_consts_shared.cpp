@@ -103,6 +103,16 @@ BEGIN_SCRIPTENUM( MapLoad, "Map load enum for GetLoadType()" )
 
 END_SCRIPTENUM();
 
+// @NMRiH - Felis: Nav mesh stuff
+BEGIN_SCRIPTENUM( HidingSpot, "Visibility enum for nav mesh hiding spots" )
+
+	DEFINE_ENUMCONST_NAMED( HidingSpot::IN_COVER, "IN_COVER", "" )
+	DEFINE_ENUMCONST_NAMED( HidingSpot::GOOD_SNIPER_SPOT, "GOOD_SNIPER_SPOT", "" )
+	DEFINE_ENUMCONST_NAMED( HidingSpot::IDEAL_SNIPER_SPOT, "IDEAL_SNIPER_SPOT", "" )
+	DEFINE_ENUMCONST_NAMED( HidingSpot::EXPOSED, "EXPOSED", "" )
+
+END_SCRIPTENUM();
+
 //=============================================================================
 //=============================================================================
 

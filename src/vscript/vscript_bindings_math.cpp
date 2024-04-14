@@ -279,7 +279,11 @@ ScriptVariant_t *CScriptQuaternionInstanceHelper::Add( void *p, ScriptVariant_t 
 {
 	Quaternion *pQuat = ((Quaternion *)p);
 
+	// @NMRiH - Felis: Fix gcc warning (-Wmaybe-uninitialized)
+	float flAdd = 0.0f;
+	/*
 	float flAdd;
+	*/
 	variant.AssignTo( &flAdd );
 
 	(*pQuat)[0] += flAdd;

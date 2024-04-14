@@ -179,7 +179,7 @@ public:
 
 	bool Init() OVERRIDE;
 	void Shutdown() OVERRIDE;
-	void LevelShutdownPostEntity() OVERRIDE;
+	void LevelShutdownPreEntity() OVERRIDE;
 
 	HSCRIPT Register( const CNavArea *pArea );
 

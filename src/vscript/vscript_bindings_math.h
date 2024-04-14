@@ -23,11 +23,18 @@ inline matrix3x4_t *ToMatrix3x4( HSCRIPT hMat ) { return HScriptToClass<matrix3x
 
 static void ScriptFreeMatrixInstance( HSCRIPT hMat )
 {
+	// @NMRiH - Felis: Dupe transient param
+	hMat = hMat ? g_pScriptVM->DuplicateObject( hMat ) : NULL;
+
 	matrix3x4_t *smatrix = HScriptToClass<matrix3x4_t>( hMat );
 	if (smatrix)
 	{
 		g_pScriptVM->RemoveInstance( hMat );
+
+		// @NMRiH - Felis: Double deletion
+		/*
 		delete smatrix;
+		*/
 	}
 }
 
@@ -51,11 +58,18 @@ inline Quaternion *ToQuaternion( HSCRIPT hQuat ) { return HScriptToClass<Quatern
 
 static void ScriptFreeQuaternionInstance( HSCRIPT hQuat )
 {
+	// @NMRiH - Felis: Dupe transient param
+	hQuat = hQuat ? g_pScriptVM->DuplicateObject( hQuat ) : NULL;
+
 	Quaternion *squat = HScriptToClass<Quaternion>( hQuat );
 	if (squat)
 	{
 		g_pScriptVM->RemoveInstance( hQuat );
+
+		// @NMRiH - Felis: Double deletion
+		/*
 		delete squat;
+		*/
 	}
 }
 

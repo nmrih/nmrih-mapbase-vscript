@@ -50,12 +50,20 @@ static ScriptHook_t g_Hook_OnEntityDeleted;
 class CScriptEntityIterator : public IEntityListener
 {
 public:
-#ifdef MAPBASE_VSCRIPT
+	// @NMRiH - Felis
+	CScriptEntityIterator()
+	{
+		m_bListening = false;
+	}
+
+	// @NMRiH - Felis: No use in multiplayer
+	/*
 	HSCRIPT GetLocalPlayer()
 	{
 		return ToHScript( UTIL_GetLocalPlayerOrListenServerHost() );
 	}
-#endif
+	*/
+
 	HSCRIPT First() { return Next(NULL); }
 
 	HSCRIPT Next( HSCRIPT hStartEntity )
@@ -126,6 +134,12 @@ public:
 
 	void EnableEntityListening()
 	{
+		// @NMRiH - Felis: Skips an assert when already listening
+		if ( m_bListening )
+			return;
+
+		m_bListening = true;
+
 		// Start getting entity updates!
 		gEntList.AddListenerEntity( this );
 	}
@@ -134,11 +148,14 @@ public:
 	{
 		// Stop getting entity updates!
 		gEntList.RemoveListenerEntity( this );
+
+		// @NMRiH - Felis
+		m_bListening = false;
 	}
 
 	void OnEntityCreated( CBaseEntity *pEntity )
 	{
-		if ( g_pScriptVM )
+		if ( g_pScriptVM && GetScriptHookManager().IsEventHooked( "OnEntityCreated" ) )
 		{
 			// entity
 			ScriptVariant_t args[] = { ScriptVariant_t( pEntity->GetScriptInstance() ) };
@@ -148,7 +165,7 @@ public:
 
 	void OnEntitySpawned( CBaseEntity *pEntity )
 	{
-		if ( g_pScriptVM )
+		if ( g_pScriptVM && GetScriptHookManager().IsEventHooked( "OnEntitySpawned" ) )
 		{
 			// entity
 			ScriptVariant_t args[] = { ScriptVariant_t( pEntity->GetScriptInstance() ) };
@@ -158,7 +175,7 @@ public:
 
 	void OnEntityDeleted( CBaseEntity *pEntity )
 	{
-		if ( g_pScriptVM )
+		if ( g_pScriptVM && GetScriptHookManager().IsEventHooked( "OnEntityDeleted" ) )
 		{
 			// entity
 			ScriptVariant_t args[] = { ScriptVariant_t( pEntity->GetScriptInstance() ) };
@@ -167,6 +184,8 @@ public:
 	};
 
 private:
+	// @NMRiH - Felis
+	bool m_bListening;
 } g_ScriptEntityIterator;
 
 BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETON "The global list of entities" )
@@ -522,6 +541,8 @@ bool VScriptServerInit()
 			{
 				ConColorMsg( 0, CON_COLOR_VSCRIPT, "VSCRIPT SERVER: Started VScript virtual machine using script language '%s'\n", g_pScriptVM->GetLanguageName() );
 
+				GetScriptHookManager().OnInit();
+
 				// MULTIPLAYER
 				ScriptRegisterFunctionNamed( g_pScriptVM, PlayerByIndex, "GetPlayerByIndex", "Returns a handle to a player by index. Only returns if the player is spawned and connected, otherwise returns null." );
 				ScriptRegisterFunctionNamed( g_pScriptVM, PlayerByUserId, "GetPlayerByUserId", "Returns a handle to a player by user id." );
@@ -770,6 +791,12 @@ CON_COMMAND( script_reload_think, "Execute an activation script, replacing exist
 	}
 }
 
+// @NMRiH - Felis
+CON_COMMAND_F( script_dump_hooks, "", FCVAR_CHEAT )
+{
+	GetScriptHookManager().Dump();
+}
+
 class CVScriptGameSystem : public CAutoGameSystemPerFrame
 {
 public:
@@ -790,6 +817,9 @@ public:
 #ifdef MAPBASE_VSCRIPT
 		g_ScriptNetMsg->LevelShutdownPreVM();
 #endif
+
+		GetScriptHookManager().OnShutdown();
+
 		VScriptServerTerm();
 	}
 

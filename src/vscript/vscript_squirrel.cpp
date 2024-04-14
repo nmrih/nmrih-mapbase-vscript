@@ -31,6 +31,9 @@
 #include "squirrel/squirrel/sqvm.h"
 #include "squirrel/squirrel/sqclosure.h"
 
+// @NMRiH - Felis
+#include "squirrel/squirrel/squserdata.h"
+
 #include "tier1/utlbuffer.h"
 
 // @NMRiH - Felis
@@ -192,9 +195,8 @@ public:
 	//--------------------------------------------------------
 	// Hooks
 	//--------------------------------------------------------
-	virtual bool ScopeIsHooked( HSCRIPT hScope, const char *pszEventName ) override;
-	virtual HSCRIPT LookupHookFunction( const char *pszEventName, HSCRIPT hScope, bool &bLegacy ) override;
-	virtual ScriptStatus_t ExecuteHookFunction( const char *pszEventName, HSCRIPT hFunction, ScriptVariant_t *pArgs, int nArgs, ScriptVariant_t *pReturn, HSCRIPT hScope, bool bWait ) override;
+	virtual HScriptRaw HScriptToRaw( HSCRIPT val ) override;
+	virtual ScriptStatus_t ExecuteHookFunction( const char *pszEventName, ScriptVariant_t *pArgs, int nArgs, ScriptVariant_t *pReturn, HSCRIPT hScope, bool bWait ) override;
 
 	//--------------------------------------------------------
 	// External functions
@@ -272,6 +274,8 @@ public:
 
 	virtual bool RaiseException(const char* pszExceptionText) override;
 
+	// @NMRiH - Felis
+	virtual HSCRIPT DuplicateObject(HSCRIPT hObject) override;
 
 	void WriteObject(CUtlBuffer* pBuffer, WriteStateMap& writeState, SQInteger idx);
 	void ReadObject(CUtlBuffer* pBuffer, ReadStateMap& readState);
@@ -1306,6 +1310,38 @@ SQInteger function_stub(HSQUIRRELVM vm)
 		return sq_throwerror(vm, "Invalid number of parameters");
 	}
 
+	// @NMRiH - Felis: We need class instance earlier
+	SquirrelVM *pSquirrelVM = (SquirrelVM*)sq_getforeignptr(vm);
+	assert(pSquirrelVM);
+
+	void* instance = nullptr;
+
+	if (pFunc->m_flags & SF_MEMBER_FUNC)
+	{
+		// @NMRiH - Felis: Fix crash when calling func using a class instead of class instance
+		// (caused by uninitialized pointer and sq_getinstanceup() bailing early)
+		SQUserPointer self = nullptr;
+		/*
+		SQUserPointer self;
+		*/
+		sq_getinstanceup(vm, 1, &self, nullptr);
+
+		if (!self)
+		{
+			// @NMRiH - Felis
+			return sq_throwerror(vm, "Accessed null instance, did you call using a class instead of class instance?");
+			/*
+			return sq_throwerror(vm, "Accessed null instance");
+			*/
+		}
+
+		instance = ((ClassInstanceData*)self)->instance;
+	}
+
+	// @NMRiH - Felis: Applied proposed fix for instance memory leaks
+	// This expects that we have caches available for systems saving handles
+	// See more: https://github.com/mapbase-source/source-sdk-2013/issues/123
+	bool bFreeParams = false;
 	CUtlVector<ScriptVariant_t> params;
 	params.SetCount(nargs);
 
@@ -1377,6 +1413,10 @@ SQInteger function_stub(HSQUIRRELVM vm)
 				*pObject = val;
 				sq_addref(vm, pObject);
 				params[i] = (HSCRIPT)pObject;
+
+				// @NMRiH - Felis: Leak fix continued
+				params[i].m_flags |= SV_FREE;
+				bFreeParams = true;
 			}
 			break;
 		}
@@ -1386,39 +1426,31 @@ SQInteger function_stub(HSQUIRRELVM vm)
 		}
 	}
 
-	void* instance = nullptr;
-
-	if (pFunc->m_flags & SF_MEMBER_FUNC)
-	{
-		// @NMRiH - Felis: Fix crash when calling func using a class instead of class instance
-		// (caused by uninitialized pointer and sq_getinstanceup() bailing early)
-		SQUserPointer self = nullptr;
-		/*
-		SQUserPointer self;
-		*/
-		sq_getinstanceup(vm, 1, &self, nullptr);
-
-		if (!self)
-		{
-			// @NMRiH - Felis
-			return sq_throwerror( vm, "Accessed null instance, did you call using a class instead of class instance?" );
-			/*
-			return sq_throwerror(vm, "Accessed null instance");
-			*/
-		}
-
-		instance = ((ClassInstanceData*)self)->instance;
-	}
-
 	ScriptVariant_t retval;
 
+	// @NMRiH - Felis: This was moved
+	/*
 	SquirrelVM* pSquirrelVM = (SquirrelVM*)sq_getforeignptr(vm);
 	assert(pSquirrelVM);
+	*/
 
 	sq_resetobject(&pSquirrelVM->lastError_);
 
 	(*pFunc->m_pfnBinding)(pFunc->m_pFunction, instance, params.Base(), nargs,
 		pFunc->m_desc.m_ReturnType == FIELD_VOID ? nullptr : &retval);
+
+	// @NMRiH - Felis: Leak fix continued
+	if (bFreeParams)
+	{
+		for (int i = 0; i < params.Count(); ++i)
+		{
+			const ScriptVariant_t &scriptVariant = params[i];
+			if (scriptVariant.m_flags & SV_FREE)
+			{
+				delete scriptVariant.m_hScript;
+			}
+		}
+	}
 
 	if (!sq_isnull(pSquirrelVM->lastError_))
 	{
@@ -2366,93 +2398,46 @@ ScriptStatus_t SquirrelVM::ExecuteFunction(HSCRIPT hFunction, ScriptVariant_t* p
 	return SCRIPT_DONE;
 }
 
-bool SquirrelVM::ScopeIsHooked( HSCRIPT hScope, const char *pszEventName )
+HScriptRaw SquirrelVM::HScriptToRaw( HSCRIPT val )
 {
-	// For now, assume null scope (which is used for global hooks) is always hooked
-	if (!hScope)
-		return true;
+	Assert( val );
+	Assert( val != INVALID_HSCRIPT );
 
-	SquirrelSafeCheck safeCheck(vm_);
-
-	Assert(hScope != INVALID_HSCRIPT);
-
-	sq_pushroottable(vm_);
-	sq_pushstring(vm_, "Hooks", -1);
-	sq_get(vm_, -2);
-	sq_pushstring(vm_, "ScopeHookedToEvent", -1);
-	sq_get(vm_, -2);
-	sq_push(vm_, -2);
-	sq_pushobject(vm_, *((HSQOBJECT*)hScope));
-	sq_pushstring(vm_, pszEventName, -1);
-	sq_call(vm_, 3, SQTrue, SQTrue);
-
-	SQBool val;
-	if (SQ_FAILED(sq_getbool(vm_, -1, &val)))
-	{
-		sq_pop(vm_, 3);
-		return false;
-	}
-
-	sq_pop(vm_, 4);
-	return val ? true : false;
+	HSQOBJECT *obj = (HSQOBJECT*)val;
+#if 0
+	if ( sq_isweakref(*obj) )
+		return obj->_unVal.pWeakRef->_obj._unVal.raw;
+#endif
+	return obj->_unVal.raw;
 }
 
-HSCRIPT SquirrelVM::LookupHookFunction(const char *pszEventName, HSCRIPT hScope, bool &bLegacy)
-{
-	HSCRIPT hFunc = hScope ? LookupFunction( pszEventName, hScope ) : nullptr;
-	if (hFunc)
-	{
-		bLegacy = true;
-		return hFunc;
-	}
-	else
-	{
-		bLegacy = false;
-	}
-
-	if (!ScopeIsHooked(hScope, pszEventName))
-		return nullptr;
-
-	SquirrelSafeCheck safeCheck(vm_);
-
-	sq_pushroottable(vm_);
-	sq_pushstring(vm_, "Hooks", -1);
-	sq_get(vm_, -2);
-	sq_pushstring(vm_, "Call", -1);
-	sq_get(vm_, -2);
-
-	HSQOBJECT obj;
-	sq_resetobject(&obj);
-	sq_getstackobj(vm_, -1, &obj);
-	sq_addref(vm_, &obj);
-	sq_pop(vm_, 3);
-
-	HSQOBJECT* pObj = new HSQOBJECT;
-	*pObj = obj;
-	return (HSCRIPT)pObj;
-}
-
-ScriptStatus_t SquirrelVM::ExecuteHookFunction(const char *pszEventName, HSCRIPT hFunction, ScriptVariant_t* pArgs, int nArgs, ScriptVariant_t* pReturn, HSCRIPT hScope, bool bWait)
+ScriptStatus_t SquirrelVM::ExecuteHookFunction(const char *pszEventName, ScriptVariant_t* pArgs, int nArgs, ScriptVariant_t* pReturn, HSCRIPT hScope, bool bWait)
 {
 	SquirrelSafeCheck safeCheck(vm_);
-	if (!hFunction)
-		return SCRIPT_ERROR;
 
-	if (hFunction == INVALID_HSCRIPT)
-		return SCRIPT_ERROR;
-
-	HSQOBJECT* pFunc = (HSQOBJECT*)hFunction;
+	HSQOBJECT* pFunc = (HSQOBJECT*)GetScriptHookManager().GetHookFunction();
 	sq_pushobject(vm_, *pFunc);
 
-	// TODO: Run in hook scope
+	// The call environment of the Hooks::Call function does not matter
+	// as the function does not access any member variables.
 	sq_pushroottable(vm_);
 
+	// @NMRiH - Felis: Keep previous order for backward compatibility
+	// i.e. Call( scope, event, ... )
 	if (hScope)
 		sq_pushobject(vm_, *((HSQOBJECT*)hScope));
 	else
 		sq_pushnull(vm_); // global hook
 
 	sq_pushstring(vm_, pszEventName, -1);
+	/*
+	sq_pushstring(vm_, pszEventName, -1);
+
+	if (hScope)
+		sq_pushobject(vm_, *((HSQOBJECT*)hScope));
+	else
+		sq_pushnull(vm_); // global hook
+	*/
 
 	for (int i = 0; i < nArgs; ++i)
 	{
@@ -2855,7 +2840,6 @@ bool SquirrelVM::GenerateUniqueKey(const char* pszRoot, char* pBuf, int nBufSize
 	static int keyIdx = 0;
 	// This gets used for script scope, still confused why it needs to be inside IScriptVM
 	// is it just to be a compatible name for CreateScope?
-	SquirrelSafeCheck safeCheck(vm_);
 	V_snprintf(pBuf, nBufSize, "%08X_%s", ++keyIdx, pszRoot);
 	return true;
 }
@@ -4123,6 +4107,22 @@ void SquirrelVM::ReadState(CUtlBuffer* pBuffer)
 	}
 
 	sq_pop(vm_, 1);
+}
+
+// @NMRiH - Felis
+HSCRIPT SquirrelVM::DuplicateObject(const HSCRIPT hObject)
+{
+	SquirrelSafeCheck safeCheck(vm_);
+
+	if (!hObject)
+		return nullptr;
+
+	const HSQOBJECT* pObject = (HSQOBJECT*)hObject;
+	HSQOBJECT* pNewObject = new HSQOBJECT;
+	*pNewObject = *pObject;
+	sq_addref(vm_, pNewObject);
+
+	return (HSCRIPT)pNewObject;
 }
 
 void SquirrelVM::RemoveOrphanInstances()

@@ -290,6 +290,9 @@ static HSCRIPT CreateDamageInfo( HSCRIPT hInflictor, HSCRIPT hAttacker, const Ve
 
 static void DestroyDamageInfo( HSCRIPT hDamageInfo )
 {
+	// @NMRiH - Felis
+	hDamageInfo = hDamageInfo ? g_pScriptVM->DuplicateObject( hDamageInfo ) : NULL;
+
 	CTakeDamageInfo *pInfo = HScriptToClass< CTakeDamageInfo >( hDamageInfo );
 	if ( pInfo )
 	{
@@ -517,6 +520,9 @@ static HSCRIPT CreateFireBulletsInfo( int cShots, const Vector &vecSrc, const Ve
 
 static void DestroyFireBulletsInfo( HSCRIPT hBulletsInfo )
 {
+	// @NMRiH - Felis
+	hBulletsInfo = hBulletsInfo ? g_pScriptVM->DuplicateObject( hBulletsInfo ) : NULL;
+
 	FireBulletsInfo_t *pInfo = HScriptToClass< FireBulletsInfo_t >( hBulletsInfo );
 	if ( pInfo )
 	{
@@ -950,6 +956,29 @@ bool ScriptIsClient()
 #endif
 }
 
+bool ScriptIsWindows()
+{
+	return IsWindows();
+}
+
+bool ScriptIsLinux()
+{
+	return IsLinux();
+}
+
+// @NMRiH - Felis: We don't need these
+/*
+bool ScriptIsOSX()
+{
+	return IsOSX();
+}
+
+bool ScriptIsPosix()
+{
+	return IsPosix();
+}
+*/
+
 // Notification printing on the right edge of the screen
 void NPrint( int pos, const char* fmt )
 {
@@ -1087,6 +1116,14 @@ void RegisterSharedScriptFunctions()
 	ScriptRegisterFunction( g_pScriptVM, IntervalPerTick, "Simulation tick interval" );
 	ScriptRegisterFunction( g_pScriptVM, GetFrameCount, "Absolute frame counter" );
 	//ScriptRegisterFunction( g_pScriptVM, GetTickCount, "Simulation ticks" );
+
+	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptIsWindows, "IsWindows", "Returns true if the game is being run on a Windows machine." );
+	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptIsLinux, "IsLinux", "Returns true if the game is being run on a Linux machine." );
+	// @NMRiH - Felis: We don't need these
+	/*
+	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptIsOSX, "IsOSX", "Returns true if the game is being run on an OSX machine." ); 
+	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptIsPosix, "IsPosix", "Returns true if the game is being run on a Posix machine." );
+	*/
 
 	RegisterScriptSingletons();
 }
