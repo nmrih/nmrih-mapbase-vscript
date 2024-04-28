@@ -40,9 +40,9 @@ extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
 
 
 // @NMRiH - Felis: Ported from Mapbase
-static ScriptHook_t g_Hook_OnEntityCreated;
-static ScriptHook_t g_Hook_OnEntitySpawned;
-static ScriptHook_t g_Hook_OnEntityDeleted;
+DECLARE_SCRIPTHOOK( OnEntityCreated );
+DECLARE_SCRIPTHOOK( OnEntitySpawned );
+DECLARE_SCRIPTHOOK( OnEntityDeleted );
 
 //-----------------------------------------------------------------------------
 //
@@ -159,7 +159,7 @@ public:
 		{
 			// entity
 			ScriptVariant_t args[] = { ScriptVariant_t( pEntity->GetScriptInstance() ) };
-			g_Hook_OnEntityCreated.Call( NULL, NULL, args );
+			GET_SCRIPTHOOK( OnEntityCreated ).Call( NULL, NULL, args );
 		}
 	};
 
@@ -169,7 +169,7 @@ public:
 		{
 			// entity
 			ScriptVariant_t args[] = { ScriptVariant_t( pEntity->GetScriptInstance() ) };
-			g_Hook_OnEntitySpawned.Call( NULL, NULL, args );
+			GET_SCRIPTHOOK( OnEntitySpawned ).Call( NULL, NULL, args );
 		}
 	};
 
@@ -179,7 +179,7 @@ public:
 		{
 			// entity
 			ScriptVariant_t args[] = { ScriptVariant_t( pEntity->GetScriptInstance() ) };
-			g_Hook_OnEntityDeleted.Call( NULL, NULL, args );
+			GET_SCRIPTHOOK( OnEntityDeleted ).Call( NULL, NULL, args );
 		}
 	};
 
@@ -212,15 +212,15 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETO
 	DEFINE_SCRIPTFUNC( EnableEntityListening, "Enables the 'OnEntity' hooks. This function must be called before using them." )
 	DEFINE_SCRIPTFUNC( DisableEntityListening, "Disables the 'OnEntity' hooks." )
 
-	BEGIN_SCRIPTHOOK( g_Hook_OnEntityCreated, "OnEntityCreated", FIELD_VOID, "Called when an entity is created. Requires EnableEntityListening() to be fired beforehand." )
+	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityCreated ), "OnEntityCreated", FIELD_VOID, "Called when an entity is created. Requires EnableEntityListening() to be fired beforehand." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
 	END_SCRIPTHOOK()
 
-	BEGIN_SCRIPTHOOK( g_Hook_OnEntitySpawned, "OnEntitySpawned", FIELD_VOID, "Called when an entity spawns. Requires EnableEntityListening() to be fired beforehand." )
+	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntitySpawned ), "OnEntitySpawned", FIELD_VOID, "Called when an entity spawns. Requires EnableEntityListening() to be fired beforehand." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
 	END_SCRIPTHOOK()
 
-	BEGIN_SCRIPTHOOK( g_Hook_OnEntityDeleted, "OnEntityDeleted", FIELD_VOID, "Called when an entity is deleted. Requires EnableEntityListening() to be fired beforehand." )
+	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityDeleted ), "OnEntityDeleted", FIELD_VOID, "Called when an entity is deleted. Requires EnableEntityListening() to be fired beforehand." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
 	END_SCRIPTHOOK()
 

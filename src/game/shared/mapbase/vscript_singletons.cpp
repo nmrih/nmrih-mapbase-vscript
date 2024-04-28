@@ -5046,7 +5046,7 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 			DevWarning( 1, "CScriptConvarAccessor::RegisterCommand unable to register blocked ConCommand: %s\n", name );
 			return;
 		}
-		
+
 		if ( !fn )
 			return;
 

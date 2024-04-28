@@ -705,7 +705,6 @@ static inline int ToConstantVariant(int value)
 
 #define DEFINE_SCRIPTFUNC( func, description )												DEFINE_SCRIPTFUNC_NAMED( func, #func, description )
 #define DEFINE_SCRIPTFUNC_NAMED( func, scriptName, description )							ScriptAddFunctionToClassDescNamed( pDesc, _className, func, scriptName, description );
-
 #define DEFINE_SCRIPT_CONSTRUCTOR()															ScriptAddConstructorToClassDesc( pDesc, _className );
 #define DEFINE_SCRIPT_INSTANCE_HELPER( p )													pDesc->pHelper = (p);
 
@@ -723,7 +722,11 @@ static inline int ToConstantVariant(int value)
 	if (!hook.m_bDefined) \
 	{ \
 		ScriptHook_t *pHook = &hook; \
+		/* @NMRiH - Felis: Use hookName for function name, compatible with our static hook declarations */ \
+		pHook->m_desc.m_pszScriptName = hookName; pHook->m_desc.m_pszFunction = hookName; pHook->m_desc.m_ReturnType = returnType; pHook->m_desc.m_pszDescription = description; \
+		/*
 		pHook->m_desc.m_pszScriptName = hookName; pHook->m_desc.m_pszFunction = #hook; pHook->m_desc.m_ReturnType = returnType; pHook->m_desc.m_pszDescription = description;
+		*/
 
 #define DEFINE_SCRIPTHOOK_PARAM( paramName, type ) pHook->AddParameter( paramName, type );
 
@@ -1948,6 +1951,22 @@ struct ScriptHook_t
 		}
 	}
 };
+
+// @NMRiH - Felis: Declares a static script hook safely via "Construct on First Use" idiom
+#define DECLARE_SCRIPTHOOK( hookName ) ScriptHook_t &GetScriptHook_##hookName()             \
+{                                                                                           \
+    static ScriptHook_t s_ScriptHook_##hookName;                                            \
+    return s_ScriptHook_##hookName;                                                         \
+}
+
+// @NMRiH - Felis: To access a hook declared in a different translation unit, call this first
+// e.g.
+//	DECLARE_EXTERN_SCRIPTHOOK( FireBullets );
+//	ScriptHook_t &Hook_FireBullets = GET_SCRIPTHOOK( FireBullets );
+#define DECLARE_EXTERN_SCRIPTHOOK( hookName ) extern ScriptHook_t &GetScriptHook_##hookName();
+
+// @NMRiH - Felis: Utility macro for getting a static script hook
+#define GET_SCRIPTHOOK( hookName ) GetScriptHook_##hookName()
 
 //-----------------------------------------------------------------------------
 // Script function proxy support
