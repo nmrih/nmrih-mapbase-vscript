@@ -1422,7 +1422,12 @@ SQInteger function_stub(HSQUIRRELVM vm)
 		}
 		default:
 			Assert(!"Unsupported type");
+
+			// @NMRiH - Felis
+			return SQ_ERROR;
+			/*
 			return false;
+			*/
 		}
 	}
 
@@ -1749,7 +1754,32 @@ struct SquirrelSafeCheck
 		if ( top_ != diff )
 		{
 			Assert(!"Squirrel VM stack is not consistent");
+
+			// @NMRiH - Felis: Dump call stack
+			char szStack[512];
+			szStack[0] = '\0';
+			V_strcat_safe(szStack, "\nCALLSTACK\n");
+			int level = 1;
+			SQStackInfos si;
+			while (SQ_SUCCEEDED(sq_stackinfos(vm_, level, &si)))
+			{
+				const char *pszFunc = "unknown";
+				const char *pszSrc = "unknown";
+				if (si.funcname)
+					pszFunc = si.funcname;
+				if (si.source)
+					pszSrc = si.source;
+
+				char szBuffer[64];
+				V_sprintf_safe(szBuffer, "FUNCTION [%s()] %s line [%d]\n", pszFunc, pszSrc, si.line);
+				V_strcat_safe(szStack, szBuffer);
+				++level;
+			}
+
+			Error("Fatal script error: Squirrel VM stack is not consistent.\n%s", szStack);
+			/*
 			Error("Squirrel VM stack is not consistent\n");
+			*/
 		}
 
 		// TODO: Handle error state checks

@@ -713,7 +713,11 @@ static inline int ToConstantVariant(int value)
 	if (!hook.m_bDefined) \
 	{ \
 		ScriptHook_t *pHook = &hook; \
+		/* @NMRiH - Felis: Use hookName for function name, compatible with our static hook declarations */ \
+		pHook->m_desc.m_pszScriptName = hookName; pHook->m_desc.m_pszFunction = hookName; pHook->m_desc.m_ReturnType = returnType; pHook->m_desc.m_pszDescription = description; \
+		/* \
 		pHook->m_desc.m_pszScriptName = hookName; pHook->m_desc.m_pszFunction = #hook; pHook->m_desc.m_ReturnType = returnType; pHook->m_desc.m_pszDescription = description; \
+		*/ \
 		pHook->m_bDefined = true; /* @NMRiH - Felis */ \
 		pDesc->m_Hooks.AddToTail(pHook); \
 	}
@@ -724,7 +728,7 @@ static inline int ToConstantVariant(int value)
 		ScriptHook_t *pHook = &hook; \
 		/* @NMRiH - Felis: Use hookName for function name, compatible with our static hook declarations */ \
 		pHook->m_desc.m_pszScriptName = hookName; pHook->m_desc.m_pszFunction = hookName; pHook->m_desc.m_ReturnType = returnType; pHook->m_desc.m_pszDescription = description; \
-		/*
+		/* \
 		pHook->m_desc.m_pszScriptName = hookName; pHook->m_desc.m_pszFunction = #hook; pHook->m_desc.m_ReturnType = returnType; pHook->m_desc.m_pszDescription = description;
 		*/
 
@@ -1880,6 +1884,8 @@ struct ScriptHook_t
 
 	ScriptHook_t() :
 		m_hFunc(NULL)
+		// @NMRiH - Felis
+		, m_bDefined( false )
 	{
 	}
 

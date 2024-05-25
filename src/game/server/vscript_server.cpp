@@ -619,6 +619,11 @@ bool VScriptServerInit()
 				*/
 				VScriptRunScript( "mapspawn", false );
 
+				// @NMRiH - Felis: Try running a map-specific script
+				char szMapSpawnName[256];
+				V_sprintf_safe( szMapSpawnName, "mapspawn_%s", STRING( gpGlobals->mapname ) );
+				VScriptRunScript( szMapSpawnName, false );
+
 				// Since the world entity spawns before VScript is initted, RunVScripts() is called before the VM has started, so no scripts are run.
 				// This gets around that by calling the same function right after the VM is initted.
 				GetWorldEntity()->RunVScripts();

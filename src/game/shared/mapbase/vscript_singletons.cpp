@@ -2537,6 +2537,8 @@ END_SCRIPTDESC();
 // Localization Interface
 // Unique to Mapbase
 //=============================================================================
+// @NMRiH - Felis: Doesn't work on dedicated servers
+/*
 class CScriptLocalize
 {
 public:
@@ -2571,6 +2573,7 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptLocalize, "CLocalize", SCRIPT_SINGLETON "Acc
 	DEFINE_SCRIPTFUNC( AddStringAsUTF8, "Adds a new localized token as a UTF-8 string (not Unicode)." )
 
 END_SCRIPTDESC();
+*/
 
 //=============================================================================
 // Game Event Listener
@@ -6233,7 +6236,10 @@ void RegisterScriptSingletons()
 #endif
 
 	g_pScriptVM->RegisterInstance( &g_ScriptNetPropManager, "NetProps" );
+	// @NMRiH - Felis: Doesn't work on dedicated servers
+	/*
 	g_pScriptVM->RegisterInstance( &g_ScriptLocalize, "Localize" );
+	*/
 	// @NMRiH - Felis: Disabled for now
 	/*
 	g_pScriptVM->RegisterInstance( g_ScriptNetMsg, "NetMsg" );
