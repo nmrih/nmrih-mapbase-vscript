@@ -384,6 +384,11 @@ bool CLogicScriptProxy::ParseFunctionString( const char *pszInput, char *pszName
 					break;
 				}
 			}
+			else
+			{
+				pszParamsBuffer[bufIdx] = *psz;
+				++bufIdx;
+			}
 
 			++depth;
 		}
