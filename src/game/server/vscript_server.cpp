@@ -656,7 +656,10 @@ void VScriptServerTerm()
 {
 	if( g_pScriptVM != NULL )
 	{
+		// @NMRiH - Felis: Redundant expression
+		/*
 		if( g_pScriptVM )
+		*/
 		{
 			scriptmanager->DestroyVM( g_pScriptVM );
 			g_pScriptVM = NULL;

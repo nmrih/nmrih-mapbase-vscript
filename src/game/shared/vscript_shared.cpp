@@ -444,6 +444,14 @@ CON_COMMAND( script_help, "Output help for script functions, optionally with a s
 		pszArg1 = args[1];
 	}
 
+	// @NMRiH - Felis: To assist with docgen
+	const bool bPrintRST = !!args.FindArg( "-rst" );
+	if ( bPrintRST )
+	{
+		g_pScriptVM->Run( CFmtStr( "__Documentation.PrintRST( \"%s\" );", args.ArgC() >= 3 ? args[2] : "*" ) );
+		return;
+	}
+
 	g_pScriptVM->Run( CFmtStr( "__Documentation.PrintHelp( \"%s\" );", pszArg1 ) );
 }
 

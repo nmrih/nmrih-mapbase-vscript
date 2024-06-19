@@ -4685,10 +4685,21 @@ public:
 	{
 		m_nCmdNameLen = V_strlen(name) + 1;
 		Assert( m_nCmdNameLen - 1 <= 128 );
+
+		// @NMRiH - Felis
+#ifndef CLIENT_DLL
+		m_bAdminOnly = false;
+#endif
 	}
 
 	void CommandCallback( const CCommand &command )
 	{
+		// @NMRiH - Felis
+#ifndef CLIENT_DLL
+		if ( m_bAdminOnly && !UTIL_IsCommandIssuedByServerAdmin() )
+			return;
+#endif
+
 		int count = command.ArgC();
 		ScriptVariant_t *vArgv = (ScriptVariant_t*)stackalloc( sizeof(ScriptVariant_t) * count );
 		for ( int i = 0; i < count; ++i )
@@ -4826,6 +4837,15 @@ public:
 	ConCommand *m_pLinked;
 	HSCRIPT m_hCompletionCallback;
 	int m_nCmdNameLen;
+
+	// @NMRiH - Felis
+#ifndef CLIENT_DLL
+	bool IsAdminOnly() const { return m_bAdminOnly; }
+	void SetAdminOnly( const bool bState ) { m_bAdminOnly = bState; }
+
+private:
+	bool m_bAdminOnly;
+#endif
 };
 
 class CScriptConVar : public ConVar
@@ -4912,6 +4932,12 @@ public:
 
 public:
 	void RegisterCommand( const char *name, HSCRIPT fn, const char *helpString, int flags );
+
+	// @NMRiH - Felis
+#ifndef CLIENT_DLL
+	void RegisterAdminCommand( const char *name, HSCRIPT fn, const char *helpString, int flags );
+#endif
+
 	void SetCompletionCallback( const char *name, HSCRIPT fn );
 	void UnregisterCommand( const char *name );
 	void RegisterConvar( const char *name, const char *pDefaultValue, const char *helpString, int flags );
@@ -5063,6 +5089,38 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 		//CGMsg( 1, CON_GROUP_VSCRIPT, "CScriptConvarAccessor::RegisterCommand replacing command already registered: %s\n", name );
 	}
 }
+
+// @NMRiH - Felis: Server admin commands, can we clean up this dupe code?
+#ifndef CLIENT_DLL
+void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, const char *helpString, const int flags )
+{
+	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
+
+	const unsigned int hash = Hash( name );
+	const int idx = g_ScriptConCommands.Find( hash );
+	if ( idx == g_ScriptConCommands.InvalidIndex() )
+	{
+		ConCommandBase *pBase = g_pCVar->FindCommandBase( name );
+		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( hash ) ) )
+		{
+			DevWarning( 1, "CScriptConvarAccessor::RegisterAdminCommand unable to register blocked ConCommand: %s\n", name );
+			return;
+		}
+
+		if ( !fn )
+			return;
+
+		CScriptConCommand *p = new CScriptConCommand( name, fn, helpString, flags, static_cast<ConCommand *>( pBase ) );
+		p->SetAdminOnly( true );
+		g_ScriptConCommands.Insert( hash, p );
+	}
+	else
+	{
+		CScriptConCommand *pCmd = g_ScriptConCommands[idx];
+		pCmd->SetCallback( fn );
+	}
+}
+#endif
 
 void CScriptConvarAccessor::SetCompletionCallback( const char *name, HSCRIPT fn )
 {
@@ -5229,8 +5287,22 @@ bool CScriptConvarAccessor::Init()
 }
 
 BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptConvarAccessor, "CConvars", SCRIPT_SINGLETON "Provides an interface to convars." )
+
+	// @NMRiH - Felis
+	DEFINE_SCRIPTFUNC( RegisterConvar, "Registers a new console variable. Usage: RegisterConvar(<name>, <default value>, <description>, <flags>)" )
+	DEFINE_SCRIPTFUNC( RegisterCommand, "Registers a console command. For callback, args will be mirrored as function params (e.g. Callback(name, arg1, arg2, ...)) "
+										"Usage: RegisterCommand(<name>, <callback function>, <description>, <flags>)" )
+/*
 	DEFINE_SCRIPTFUNC( RegisterConvar, "register a new console variable." )
 	DEFINE_SCRIPTFUNC( RegisterCommand, "register a console command." )
+*/
+
+	// @NMRiH - Felis
+#ifndef CLIENT_DLL
+	DEFINE_SCRIPTFUNC( RegisterAdminCommand, "Registers an admin command, only server admins are able to execute it. Otherwise identical to RegisterCommand. "
+											 "Usage: RegisterAdminCommand(<name>, <callback function>, <description>, <flags>)" )
+#endif
+
 	DEFINE_SCRIPTFUNC( SetCompletionCallback, "callback is called with 3 parameters (cmd, partial, commands), user strings must be appended to 'commands' array" )
 	DEFINE_SCRIPTFUNC( SetChangeCallback, "callback is called with 5 parameters (var, szOldValue, flOldValue, szNewValue, flNewValue)" )
 	DEFINE_SCRIPTFUNC( UnregisterCommand, "unregister a console command." )
@@ -5690,10 +5762,6 @@ public:
 		}
 
 		const HidingSpotVector *pHidingSpots = GetArea()->GetHidingSpots();
-		if ( !pHidingSpots )
-		{
-			return;
-		}
 
 		// Create nested tables containing hiding spot properties
 		// These are cached and released by area script instance, so we don't have to care about lifespan

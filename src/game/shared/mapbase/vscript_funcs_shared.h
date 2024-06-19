@@ -235,13 +235,25 @@ struct ScriptEmitSound_t : public EmitSound_t
 	float GetSoundTime() { return m_flSoundTime; }
 	void SetSoundTime( float flSoundTime ) { m_flSoundTime = flSoundTime; }
 
+	// @NMRiH - Felis: This should return bool?
+	/*
 	float GetEmitCloseCaption() { return m_bEmitCloseCaption; }
+	*/
+	bool GetEmitCloseCaption() { return m_bEmitCloseCaption; }
 	void SetEmitCloseCaption( bool bEmitCloseCaption ) { m_bEmitCloseCaption = bEmitCloseCaption; }
 
+	// @NMRiH - Felis: ... and this
+	/*
 	float GetWarnOnMissingCloseCaption() { return m_bWarnOnMissingCloseCaption; }
+	*/
+	bool GetWarnOnMissingCloseCaption() { return m_bWarnOnMissingCloseCaption; }
 	void SetWarnOnMissingCloseCaption( bool bWarnOnMissingCloseCaption ) { m_bWarnOnMissingCloseCaption = bWarnOnMissingCloseCaption; }
 
+	// @NMRiH - Felis: ... you know the deal by now
+	/*
 	float GetWarnOnDirectWaveReference() { return m_bWarnOnDirectWaveReference; }
+	*/
+	bool GetWarnOnDirectWaveReference() { return m_bWarnOnDirectWaveReference; }
 	void SetWarnOnDirectWaveReference( bool bWarnOnDirectWaveReference ) { m_bWarnOnDirectWaveReference = bWarnOnDirectWaveReference; }
 
 	int GetSpeakerEntity() { return m_nSpeakerEntity; }

@@ -495,6 +495,31 @@ if (developer)
 		printdocl(text);
 	}
 
+	// @NMRiH - Felis: To assist with docgen
+	local function PrintRST(name, doc)
+	{
+		local a = split(name, ":", true);	// func name
+		local b = split(doc[0], " ", true); // return type
+		local c = split(doc[0], ":", true);	// params
+
+		if (a.len() > 1 && c.len() > 1)
+		{
+			local header = ".. _" + a[1] + ":\n";
+			printl(header);
+		
+			local funcTag = ".. c:function:: " + b[0] + " " + c[1] + "\n";
+			printl(funcTag);
+		}
+
+		if (doc[1].len())
+		{
+			local desc = (doc[1] + "\n");
+			printl(desc);
+		}
+
+		printl("\n");
+	}
+
 	local function PrintMatches( pattern, docs, printfunc )
 	{
 		local matches = [];
@@ -531,6 +556,25 @@ if (developer)
 			PrintMatches( patternLower, DocumentedFuncs, PrintFunc )		|
 			PrintMatches( patternLower, DocumentedMembers, PrintMember )	|
 			PrintMatches( patternLower, DocumentedHooks, PrintHook )
+		   ))
+		{
+			printdocl("Pattern " + pattern + " not found");
+		}
+	}
+
+	// @NMRiH - Felis: To assist with docgen
+	function __Documentation::PrintRST(pattern = "*")
+	{
+		local patternLower = pattern.tolower();
+
+		// Have a specific order
+		if (!(
+			PrintMatches( patternLower, DocumentedEnums, PrintRST )	|
+			PrintMatches( patternLower, DocumentedConsts, PrintRST )	|
+			PrintMatches( patternLower, DocumentedClasses, PrintRST )	|
+			PrintMatches( patternLower, DocumentedFuncs, PrintRST )	|
+			PrintMatches( patternLower, DocumentedMembers, PrintRST )	|
+			PrintMatches( patternLower, DocumentedHooks, PrintRST )
 		   ))
 		{
 			printdocl("Pattern " + pattern + " not found");
