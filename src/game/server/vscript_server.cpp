@@ -19,6 +19,7 @@
 
 // @NMRiH - Felis
 #include "nmrih_challenge_manager.h"
+#include "nmrih_shareddefs.h"
 
 #include "mapbase/vscript_singletons.h"
 
@@ -50,12 +51,6 @@ DECLARE_SCRIPTHOOK( OnEntityDeleted );
 class CScriptEntityIterator : public IEntityListener
 {
 public:
-	// @NMRiH - Felis
-	CScriptEntityIterator()
-	{
-		m_bListening = false;
-	}
-
 	// @NMRiH - Felis: No use in multiplayer
 	/*
 	HSCRIPT GetLocalPlayer()
@@ -134,23 +129,20 @@ public:
 
 	void EnableEntityListening()
 	{
-		// @NMRiH - Felis: Skips an assert when already listening
-		if ( m_bListening )
-			return;
-
-		m_bListening = true;
-
+		// @NMRiH - Felis: Deprecated! We are always listening
+		/*
 		// Start getting entity updates!
 		gEntList.AddListenerEntity( this );
+		*/
 	}
 
 	void DisableEntityListening()
 	{
+		// @NMRiH - Felis: Ditto!
+		/*
 		// Stop getting entity updates!
 		gEntList.RemoveListenerEntity( this );
-
-		// @NMRiH - Felis
-		m_bListening = false;
+		*/
 	}
 
 	void OnEntityCreated( CBaseEntity *pEntity )
@@ -183,9 +175,6 @@ public:
 		}
 	};
 
-private:
-	// @NMRiH - Felis
-	bool m_bListening;
 } g_ScriptEntityIterator;
 
 BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETON "The global list of entities" )
@@ -209,8 +198,13 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETO
 	DEFINE_SCRIPTFUNC( FindByClassnameWithinBox, "Find entities by class name within an AABB. Pass 'null' to start an iteration, or reference to a previously found entity to continue a search"  )
 	DEFINE_SCRIPTFUNC( FindByClassNearestFacing, "Find the nearest entity along the facing direction from the given origin within the angular threshold with the given classname."  )
 
+	// @NMRiH - Felis: Deprecated! We are always listening
+	DEFINE_SCRIPTFUNC( EnableEntityListening, SCRIPT_HIDE )
+	DEFINE_SCRIPTFUNC( DisableEntityListening, SCRIPT_HIDE )
+	/*
 	DEFINE_SCRIPTFUNC( EnableEntityListening, "Enables the 'OnEntity' hooks. This function must be called before using them." )
 	DEFINE_SCRIPTFUNC( DisableEntityListening, "Disables the 'OnEntity' hooks." )
+	*/
 
 	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityCreated ), "OnEntityCreated", FIELD_VOID, "Called when an entity is created. Requires EnableEntityListening() to be fired beforehand." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
@@ -477,6 +471,23 @@ void ScriptCenterPrintAll( const char *pszMsgName )
 	ScriptCenterPrintAllWithParams( pszMsgName, NULL, NULL, NULL, NULL );
 }
 
+// @NMRiH - Felis: FMOD stuff
+extern int FMOD_PrecacheSound( const char *pszSound, int inFlags, int *pOutFlags /* = NULL */ );
+bool Script_FMOD_PrecacheSound( const char *pszSound )
+{
+	// Do this manually to dodge wasted precaches
+	if ( !DoesSoundFileExist( pszSound ) )
+	{
+		Warning( "FMOD_PrecacheSound: Couldn't find sound %s! File probably missing from disk", pszSound );
+		return false;
+	}
+
+	// Precache flags aren't really important here, let's not expose those for tinkering
+	// The function below converts soundchars to corresponding flags, e.g. streaming
+	const int index = FMOD_PrecacheSound( pszSound, 0, NULL );
+	return index != INVALID_FMOD_SOUND_INDEX;
+}
+
 bool VScriptServerInit()
 {
 	VMPROF_START
@@ -589,6 +600,12 @@ bool VScriptServerInit()
 				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptCenterPrintWithParams, "CenterPrintWithParams", "Sends HUD text message to the client, with optional string params. Format is limited to strings and is mapped to param order, i.e. %s1, %s2, %s3, %s4. You can pass an empty string as a param to skip. Usage: CenterPrintWithParams(<player ent handle>, <string>, <p1>, <p2>, <p3>, <p4>)" );
 				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptCenterPrintAllWithParams, "CenterPrintAllWithParams", "Sends HUD text message to all clients, with optional string params. Format is limited to strings and is mapped to param order, i.e. %s1, %s2, %s3, %s4. You can pass an empty string as a param to skip. Usage: CenterPrintAllWithParams(<string>, <p1>, <p2>, <p3>, <p4>)" );
 
+				// @NMRiH - Felis: FMOD stuff
+				ScriptRegisterFunctionNamed( g_pScriptVM, Script_FMOD_PrecacheSound, "FMOD_PrecacheSound", "Precaches a sound file or soundscript entry to FMOD sound system." );
+
+				// @NMRiH - Felis: Global entity listener
+				gEntList.AddListenerEntity( &g_ScriptEntityIterator );
+
 				if ( GameRules() )
 				{
 					GameRules()->RegisterScriptFunctions();
@@ -665,6 +682,9 @@ void VScriptServerTerm()
 			g_pScriptVM = NULL;
 		}
 	}
+
+	// @NMRiH - Felis: Global entity listener
+	gEntList.RemoveListenerEntity( &g_ScriptEntityIterator );
 }
 
 

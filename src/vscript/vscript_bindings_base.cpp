@@ -230,6 +230,12 @@ void CScriptKeyValues::TableToSubKeys( HSCRIPT hTable )
 
 void CScriptKeyValues::SubKeysToTable( HSCRIPT hTable )
 {
+	// @NMRiH - Felis
+	if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+	{
+		return;
+	}
+
 	FOR_EACH_SUBKEY( m_pKeyValues, key )
 	{
 		switch ( key->GetDataType() )

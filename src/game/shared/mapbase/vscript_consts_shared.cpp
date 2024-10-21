@@ -17,6 +17,9 @@
 #include "globalstate.h"
 #endif
 
+// @NMRiH - Felis
+#include "particle_parse.h"
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -665,6 +668,15 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_FUNC_COST, "Area has designer specified cost controlled by func_nav_cost entities." );
 	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_HAS_ELEVATOR, "Area is in an elevator's path." );
 	ScriptRegisterConstant( g_pScriptVM, NAV_MESH_NAV_BLOCKER, "Area is blocked by nav blocker." );
+
+	// @NMRiH - Felis: Particle attachment stuff
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_ABSORIGIN, "Create at absorigin, but don't follow" );
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_ABSORIGIN_FOLLOW, "Create at absorigin, and update to follow the entity" );
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_CUSTOMORIGIN, "Create at a custom origin, but don't follow" );
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_POINT, "Create on attachment point, but don't follow" );
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_POINT_FOLLOW, "Create on attachment point, and update to follow the entity" );
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_WORLDORIGIN, "Used for control points that don't attach to an entity" );
+	ScriptRegisterConstant( g_pScriptVM, PATTACH_ROOTBONE_FOLLOW, "Create at the root bone of the entity, and update to follow" );
 
 	RegisterWeaponScriptConstants();
 }

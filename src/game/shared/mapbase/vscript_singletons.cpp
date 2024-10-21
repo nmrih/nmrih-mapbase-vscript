@@ -2856,6 +2856,12 @@ public:
 //-----------------------------------------------------------------------------
 void CScriptGameEventListener::WriteEventData( IGameEvent *event, HSCRIPT hTable )
 {
+	// @NMRiH - Felis
+	if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+	{
+		return;
+	}
+
 #ifdef USE_OLD_EVENT_DESCRIPTORS
 	int i = s_GameEvents.Find( Hash( event->GetName() ) );
 	if ( i == s_GameEvents.InvalidIndex() )
@@ -4904,6 +4910,14 @@ static CUtlMap< unsigned int, CScriptConVar* > g_ScriptConVars( DefLessFunc(unsi
 
 class CScriptConvarAccessor : public CAutoGameSystem
 {
+	// @NMRiH - Felis
+	enum CvarSetterAccess_t
+	{
+		REJECTED = 0, // Privilege escalation
+		ALLOWED, // Cvar set by script
+		RULESET, // Use ruleset sandbox
+	};
+
 public:
 	static inline unsigned int Hash( const char*sz ){ return HashStringCaseless(sz); }
 
@@ -5013,24 +5027,118 @@ public:
 
 	void SetFloat( const char *pszConVar, float value )
 	{
+		// @NMRiH - Felis
+		ConVarRef cvarRef = ConVarRef( pszConVar );
+		switch ( GetSetterAccess( cvarRef ) )
+		{
+			case ALLOWED:
+				cvarRef.SetValue( value );
+				break;
+			case REJECTED:
+				break;
+			case RULESET:
+				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), UTIL_VarArgs( "%f", value ), RULESET_MODIFIED_CVAR_VSCRIPT );
+				break;
+		}
+		/*
 		SetValue( pszConVar, value );
+		*/
 	}
 
 	void SetInt( const char *pszConVar, int value )
 	{
+		// @NMRiH - Felis
+		ConVarRef cvarRef = ConVarRef( pszConVar );
+		switch ( GetSetterAccess( cvarRef ) )
+		{
+			case ALLOWED:
+				cvarRef.SetValue( value );
+				break;
+			case REJECTED:
+				break;
+			case RULESET:
+				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), UTIL_VarArgs( "%d", value ), RULESET_MODIFIED_CVAR_VSCRIPT );
+				break;
+		}
+		/*
 		SetValue( pszConVar, value );
+		*/
 	}
 
 	void SetBool( const char *pszConVar, bool value )
 	{
+		// @NMRiH - Felis
+		ConVarRef cvarRef = ConVarRef( pszConVar );
+		switch ( GetSetterAccess( cvarRef ) )
+		{
+			case ALLOWED:
+				cvarRef.SetValue( value );
+				break;
+			case REJECTED:
+				break;
+			case RULESET:
+				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), !value ? "0" : "1", RULESET_MODIFIED_CVAR_VSCRIPT );
+				break;
+		}
+		/*
 		SetValue( pszConVar, value );
+		*/
 	}
 
 	void SetStr( const char *pszConVar, const char *value )
 	{
+		// @NMRiH - Felis
+		ConVarRef cvarRef = ConVarRef( pszConVar );
+		switch ( GetSetterAccess( cvarRef ) )
+		{
+			case ALLOWED:
+				cvarRef.SetValue( value );
+				break;
+			case REJECTED:
+				break;
+			case RULESET:
+				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), value, RULESET_MODIFIED_CVAR_VSCRIPT );
+				break;
+		}
+		/*
 		SetValue( pszConVar, value );
+		*/
 	}
 
+	// @NMRiH - Felis: Pre-conditions for setting a value
+	CvarSetterAccess_t GetSetterAccess( const ConVarRef &cvarRef )
+	{
+		if ( !cvarRef.IsValid() )
+			return REJECTED;
+
+		if ( cvarRef.IsFlagSet( FCVAR_NOT_CONNECTED | FCVAR_SERVER_CANNOT_QUERY ) )
+			return REJECTED;
+
+		const char *pszName = cvarRef.GetName();
+		if ( IsBlockedConvar( pszName ) )
+			return REJECTED;
+
+		// Setting cvars is another privilege escalation
+		// Only allow cvars that are registered by the scripts for now
+		// Later we can add some -unsafescript switch for daring admins
+		const int idx = g_ScriptConVars.Find( Hash( pszName ) );
+		if ( idx == g_ScriptConVars.InvalidIndex() )
+		{
+			// Make an exception if this is a ruleset validated cvar
+			if ( GetRulesetManager()->IsCvarValidated( pszName ) )
+			{
+				return RULESET;
+			}
+
+			Warning( "VScript: Setting cvars not registered by scripts isn't allowed. (%s)\n", pszName );
+			return REJECTED;
+		}
+
+		return ALLOWED;
+	}
+
+	// @NMRiH - Felis: Replacing this due to difficulty deducing incoming template
+	/*
 	template <typename T>
 	void SetValue( const char *pszConVar, T value )
 	{
@@ -5043,19 +5151,10 @@ public:
 
 		if ( IsBlockedConvar( pszConVar ) )
 			return;
-
-		// @NMRiH - Felis: Setting cvars is another privilege escalation
-		// Only allow cvars that are registered by the scripts for now
-		// Later we can add some -unsafescript switch for daring admins
-		const int idx = g_ScriptConVars.Find( Hash( pszConVar ) );
-		if ( idx == g_ScriptConVars.InvalidIndex() )
-		{
-			Warning( "VScript: Setting cvars not registered by scripts isn't allowed. (%s)\n", pszConVar );
-			return;
-		}
 		
 		cvar.SetValue( value );
 	}
+	*/
 
 } g_ScriptConvarAccessor;
 
@@ -5086,6 +5185,10 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 	{
 		CScriptConCommand *pCmd = g_ScriptConCommands[idx];
 		pCmd->SetCallback( fn );
+
+		// @NMRiH - Felis
+		Warning( "CScriptConvarAccessor::RegisterCommand replacing command already registered: %s\n", name );
+
 		//CGMsg( 1, CON_GROUP_VSCRIPT, "CScriptConvarAccessor::RegisterCommand replacing command already registered: %s\n", name );
 	}
 }
@@ -5206,8 +5309,6 @@ bool CScriptConvarAccessor::Init()
 		return true;
 	bExecOnce = true;
 
-	// @NMRiH - Felis: Nah
-	/*
 	AddOverridable( "+attack" );
 	AddOverridable( "+attack2" );
 	AddOverridable( "+attack3" );
@@ -5276,7 +5377,6 @@ bool CScriptConvarAccessor::Init()
 
 	AddOverridable( "say" );
 	AddOverridable( "say_team" );
-	*/
 
 	AddBlockedConVar( "con_enable" );
 	AddBlockedConVar( "cl_allowdownload" );
@@ -5748,6 +5848,11 @@ public:
 
 	void GetHidingSpots( const HSCRIPT hTable )
 	{
+		if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+		{
+			return;
+		}
+
 		if ( !m_CachedHidingSpotTables.IsEmpty() )
 		{
 			// Use cached spots
@@ -5962,6 +6067,11 @@ protected:
 			return;
 		}
 
+		if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+		{
+			return;
+		}
+
 		for ( int i = 0; i < pAreas->Count(); ++i )
 		{
 			const NavConnect &connectedArea = pAreas->Element( i );
@@ -6152,6 +6262,11 @@ public:
 
 	void GetAllAreas( const HSCRIPT hTable )
 	{
+		if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+		{
+			return;
+		}
+
 		int areaIndex = 0;
 		for ( int i = 0; i < TheNavAreas.Count(); ++i )
 		{
@@ -6165,6 +6280,11 @@ public:
 
 	void GetNavAreasInRadius( const Vector &vecOrigin, const float flRadius, const HSCRIPT hTable )
 	{
+		if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+		{
+			return;
+		}
+
 		NavAreaCollector collector;
 		TheNavMesh->ForAllAreasInRadius( collector, vecOrigin, flRadius );
 
@@ -6191,7 +6311,7 @@ public:
 	bool GetNavAreasFromBuildPath( const HSCRIPT hStartArea, const HSCRIPT hEndArea, const Vector &vecGoalPos,
 		const float flMaxPathLength, const int teamID, const bool bIgnoreNavBlockers, const HSCRIPT hTable )
 	{
-		if ( !hTable )
+		if ( !hTable || !g_pScriptVM->EnsureObjectIsTable( hTable ) )
 		{
 			return false;
 		}

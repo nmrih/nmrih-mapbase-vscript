@@ -969,6 +969,9 @@ public:
 	// @NMRiH - Felis: Has a specific use case for duplicating transient params as persistent handles
 	virtual HSCRIPT DuplicateObject( HSCRIPT hObject ) = 0;
 
+	// @NMRiH - Felis: Used as pre-condition for functions dealing with tables to catch errors early
+	virtual bool EnsureObjectIsTable( HSCRIPT hObject ) = 0;
+
 	//----------------------------------------------------------------------------
 	// Call API
 	//

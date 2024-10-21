@@ -276,6 +276,7 @@ public:
 
 	// @NMRiH - Felis
 	virtual HSCRIPT DuplicateObject(HSCRIPT hObject) override;
+	virtual bool EnsureObjectIsTable(HSCRIPT hObject) override;
 
 	void WriteObject(CUtlBuffer* pBuffer, WriteStateMap& writeState, SQInteger idx);
 	void ReadObject(CUtlBuffer* pBuffer, ReadStateMap& readState);
@@ -4153,6 +4154,27 @@ HSCRIPT SquirrelVM::DuplicateObject(const HSCRIPT hObject)
 	sq_addref(vm_, pNewObject);
 
 	return (HSCRIPT)pNewObject;
+}
+
+// @NMRiH - Felis
+bool SquirrelVM::EnsureObjectIsTable(const HSCRIPT hObject)
+{
+	SquirrelSafeCheck safeCheck(vm_);
+
+	bool bRet = false;
+
+	if (hObject)
+	{
+		const HSQOBJECT pObj = *(HSQOBJECT*)hObject;
+		bRet = sq_istable(pObj);
+	}
+
+	if (!bRet)
+	{
+		RaiseException("Expected table");
+	}
+
+	return bRet;
 }
 
 void SquirrelVM::RemoveOrphanInstances()
