@@ -817,7 +817,11 @@ public:
 	virtual bool Init() = 0;
 	virtual void Shutdown() = 0;
 
+	// @NMRiH - Felis: Ported from Mapbase
+	virtual bool ConnectDebugger( int port = 0 ) = 0;
+	/*
 	virtual bool ConnectDebugger() = 0;
+	*/
 	virtual void DisconnectDebugger() = 0;
 
 	virtual ScriptLanguage_t GetLanguage() = 0;

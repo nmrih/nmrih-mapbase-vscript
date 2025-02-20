@@ -5,85 +5,13 @@
 //=============================================================================//
 
 #include "cbase.h"
+#include "logic_script_proxy.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
 //-----------------------------------------------------------------------------
 ConVar debug_script_proxy_print_buffer( "debug_script_proxy_print_buffer", "0", FCVAR_CHEAT );
-
-//-----------------------------------------------------------------------------
-enum ScriptProxyReturnType_t
-{
-	SCRIPT_PROXY_VOID = 0,
-	SCRIPT_PROXY_STRING,
-	SCRIPT_PROXY_INT,
-	SCRIPT_PROXY_FLOAT,
-	SCRIPT_PROXY_VECTOR,
-	SCRIPT_PROXY_BOOL,
-	SCRIPT_PROXY_EHANDLE,
-};
-
-//-----------------------------------------------------------------------------
-class CLogicScriptProxy : public CLogicalEntity
-{
-public:
-	DECLARE_CLASS( CLogicScriptProxy, CLogicalEntity );
-	DECLARE_DATADESC();
-	DECLARE_ENT_SCRIPTDESC();
-
-	CLogicScriptProxy();
-
-	void RunFunction( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_VOID ); }
-	void RunFunctionString( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_STRING ); }
-	void RunFunctionInt( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_INT ); }
-	void RunFunctionFloat( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_FLOAT ); }
-	void RunFunctionVector( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_VECTOR ); }
-	void RunFunctionBool( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_BOOL ); }
-	void RunFunctionEHandle( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_EHANDLE ); }
-
-	void SetTargetEntity( const CBaseEntity *pEntity );
-	void ScriptSetTargetEntity( const HSCRIPT hEntity ) { SetTargetEntity( HScriptToClass<CBaseEntity>( hEntity ) ); }
-
-	bool HasFailed() const { return m_bError; }
-
-	// Input handlers
-	void InputRunFunction( inputdata_t &inputdata );
-	void InputRunFunctionString( inputdata_t &inputdata );
-	void InputRunFunctionInt( inputdata_t &inputdata );
-	void InputRunFunctionFloat( inputdata_t &inputdata );
-	void InputRunFunctionVector( inputdata_t &inputdata );
-	void InputRunFunctionBool( inputdata_t &inputdata );
-	void InputRunFunctionEHandle( inputdata_t &inputdata );
-	void InputSetTargetEntity( inputdata_t &inputdata );
-
-private:
-	bool InternalRunFunction( const char *pszScriptText, ScriptProxyReturnType_t type = SCRIPT_PROXY_VOID );
-
-	void SetProxyBufferString( const char *pszString );
-	void SetProxyBufferInt( int value );
-	void SetProxyBufferFloat( float flValue );
-	void SetProxyBufferVector( const Vector &vec );
-	void SetProxyBufferBool( bool bValue );
-	void SetProxyBufferEHandle( HSCRIPT hEntity );
-
-	void FlushProxyBuffer();
-
-	// Returns both function name and parameters in a friendly format
-	static bool ParseFunctionString( const char *pszInput, char *pszNameBuffer, int nameBufSize, char *pszParamsBuffer, int paramsBufSize );
-
-	string_t m_iszReturnValue;
-	int m_iReturnValue;
-	float m_flReturnValue;
-	Vector m_vecReturnValue;
-	EHANDLE m_hReturnValue;
-
-	EHANDLE m_hTargetEntity;
-	bool m_bError;
-
-	// Not polluting the string pool, store buffer in entity
-	char m_szBuffer[1024];
-};
 
 //-----------------------------------------------------------------------------
 LINK_ENTITY_TO_CLASS( logic_script_proxy, CLogicScriptProxy );
@@ -137,8 +65,8 @@ CLogicScriptProxy::CLogicScriptProxy()
 	m_hTargetEntity = NULL;
 	m_bError = false;
 
-	m_szBuffer[0] = '\0';
-	m_iszReturnValue = MAKE_STRING( m_szBuffer ); // Should never be null!
+	m_pszBuffer = NULL;
+	m_iszReturnValue = MAKE_STRING( m_pszBuffer );
 }
 
 //-----------------------------------------------------------------------------
@@ -433,8 +361,10 @@ bool CLogicScriptProxy::ParseFunctionString( const char *pszInput, char *pszName
 //-----------------------------------------------------------------------------
 void CLogicScriptProxy::FlushProxyBuffer()
 {
-	m_szBuffer[0] = '\0';
-	m_iszReturnValue = MAKE_STRING( m_szBuffer ); // Should never be null!
+	delete[] m_pszBuffer;
+	m_pszBuffer = NULL;
+
+	m_iszReturnValue = MAKE_STRING( m_pszBuffer );
 	m_iReturnValue = 0;
 	m_flReturnValue = 0.0;
 	m_vecReturnValue.Init();
@@ -445,8 +375,9 @@ void CLogicScriptProxy::FlushProxyBuffer()
 void CLogicScriptProxy::SetProxyBufferString( const char *pszString )
 {
 	// Save to buffer
-	V_strcpy_safe( m_szBuffer, pszString );
-	m_iszReturnValue = MAKE_STRING( m_szBuffer );
+	delete[] m_pszBuffer;
+	m_pszBuffer = V_strdup( pszString );
+	m_iszReturnValue = MAKE_STRING( m_pszBuffer );
 }
 
 //-----------------------------------------------------------------------------

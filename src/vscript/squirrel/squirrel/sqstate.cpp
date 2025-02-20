@@ -374,15 +374,18 @@ void SQCollectable::RemoveFromChain(SQCollectable **chain,SQCollectable *c)
 SQChar* SQSharedState::GetScratchPad(SQInteger size)
 {
     SQInteger newsize;
-    if(size>0) {
-        if(_scratchpadsize < size) {
-            newsize = size + (size>>1);
-            _scratchpad = (SQChar *)SQ_REALLOC(_scratchpad,_scratchpadsize,newsize);
+    if (size > 0) {
+        if (_scratchpadsize < size) {
+            newsize = (SQInteger)((SQUnsignedInteger)size + (size >> 1));
+            newsize = sq_max(newsize, size); //check for overflow
+            _scratchpad = (SQChar*)SQ_REALLOC(_scratchpad, _scratchpadsize, newsize);
             _scratchpadsize = newsize;
 
-        }else if(_scratchpadsize >= (size<<5)) {
+        }
+        else if ((_scratchpadsize >> 5) >= size) {
             newsize = _scratchpadsize >> 1;
-            _scratchpad = (SQChar *)SQ_REALLOC(_scratchpad,_scratchpadsize,newsize);
+            newsize = sq_max(newsize, size); //check for overflow
+            _scratchpad = (SQChar*)SQ_REALLOC(_scratchpad, _scratchpadsize, newsize);
             _scratchpadsize = newsize;
         }
     }
@@ -575,6 +578,41 @@ void SQStringTable::AllocNodes(SQInteger size)
     _numofslots = size;
     _strings = (SQString**)SQ_MALLOC(sizeof(SQString*)*_numofslots);
     memset(_strings,0,sizeof(SQString*)*_numofslots);
+}
+
+SQString* SQStringTable::Concat(const SQChar* a, SQInteger alen, const SQChar* b, SQInteger blen)
+{
+    SQHash newhash = ::_hashstr2(a, alen, b, blen);
+    SQHash h = newhash & (_numofslots - 1);
+    SQString* s;
+    SQInteger len = alen + blen;
+    for (s = _strings[h]; s; s = s->_next) {
+        if (s->_len == len) {
+            if ((!memcmp(a, s->_val, sq_rsl(alen)))
+                && (!memcmp(b, &s->_val[alen], sq_rsl(blen)))) {
+                return s; //found
+            }
+        }
+    }
+    //
+    SQString* t = (SQString*)SQ_MALLOC(sq_rsl(len) + sizeof(SQString));
+    new (t) SQString;
+    t->_sharedstate = _sharedstate;
+    memcpy(t->_val, a, sq_rsl(alen));
+    memcpy(&t->_val[alen], b, sq_rsl(blen));
+    t->_val[len] = _SC('\0');
+    t->_len = len;
+    t->_hash = newhash;
+    t->_next = _strings[h];
+    _strings[h] = t;
+    _slotused++;
+#ifdef _DEBUG
+    SQHash old_newhash = ::_hashstr(t->_val, t->_len);
+    assert(old_newhash == newhash);
+#endif
+    if (_slotused > _numofslots)  /* too crowded? */
+        Resize(_numofslots * 2);
+    return t;
 }
 
 SQString *SQStringTable::Add(const SQChar *news,SQInteger len)

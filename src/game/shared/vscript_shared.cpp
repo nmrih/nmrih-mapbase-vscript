@@ -43,6 +43,7 @@ extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
 
 // This is to ensure a dependency exists between the vscript library and the game DLLs
 extern int vscript_token;
+extern int vscript_debugger_port;
 int vscript_token_hack = vscript_token;
 
 
@@ -417,12 +418,37 @@ CON_COMMAND( script_debug, "Connect the vscript VM to the script debugger" )
 		return;
 #endif
 	
+	// @NMRiH - Felis: Ported from Mapbase
+#ifdef GAME_DLL
+	int port = 1212;
+#else
+	int port = 1213;
+#endif
+
 	if ( !g_pScriptVM )
 	{
+		// @NMRiH - Felis: Ported from Mapbase
+		vscript_debugger_port = port;
+		ConColorMsg( 0, CON_COLOR_VSCRIPT, "VScript VM is not running, waiting for it to attach the debugger to port %d...\n", port );
+		/*
 		Warning( "Scripting disabled or no server running\n" );
+		*/
 		return;
 	}
+	
+	// @NMRiH - Felis: Ported from Mapbase
+	g_pScriptVM->ConnectDebugger( port );
+	/*
 	g_pScriptVM->ConnectDebugger();
+	*/
+
+	// @NMRiH - Felis: Learn by doing?
+	static bool bHintGiven = false;
+	if ( !bHintGiven )
+	{
+		Msg( "Tip: Check out the \"sqdbg\" directory within \"nmrih/utils\" for instructions on how to get started.\n" );
+		bHintGiven = true;
+	}
 }
 
 CON_COMMAND( script_help, "Output help for script functions, optionally with a search string" )
