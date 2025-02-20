@@ -70,6 +70,14 @@ CLogicScriptProxy::CLogicScriptProxy()
 }
 
 //-----------------------------------------------------------------------------
+void CLogicScriptProxy::UpdateOnRemove()
+{
+	FlushProxyBuffer();
+
+	BaseClass::UpdateOnRemove();
+}
+
+//-----------------------------------------------------------------------------
 bool CLogicScriptProxy::InternalRunFunction( const char *pszScriptText, const ScriptProxyReturnType_t type )
 {
 	FlushProxyBuffer();

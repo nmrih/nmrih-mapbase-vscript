@@ -29,6 +29,8 @@ public:
 
 	CLogicScriptProxy();
 
+	void UpdateOnRemove() OVERRIDE;
+
 	void RunFunction( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_VOID ); }
 	void RunFunctionString( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_STRING ); }
 	void RunFunctionInt( const char *pszScriptText ) { m_bError = !InternalRunFunction( pszScriptText, SCRIPT_PROXY_INT ); }

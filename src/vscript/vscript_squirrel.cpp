@@ -15,6 +15,8 @@
 
 #include "squirrel.h"
 #include "sqstdaux.h"
+// @NMRiH - Felis: We can have blobs
+#include "sqstdblob.h"
 //#include "sqstdblob.h"
 //#include "sqstdsystem.h"
 #include "sqstdtime.h"
@@ -2091,6 +2093,9 @@ bool SquirrelVM::Init()
 		// that also depends on compile errors not showing up and relies on IFilesystem with
 		// a path prefix.
 		//
+
+		// @NMRiH - Felis: We can have blobs
+		sqstd_register_bloblib( vm_ );
 		//sqstd_register_bloblib(vm_);
 		//sqstd_register_iolib(vm_);
 		//sqstd_register_systemlib(vm_);

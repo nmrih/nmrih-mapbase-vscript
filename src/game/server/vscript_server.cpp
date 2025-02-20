@@ -429,15 +429,16 @@ static bool ScriptTraceLineEx( const HSCRIPT hTable )
 	// Inputs
 	// Start and end are required
 	ScriptVariant_t start;
-	ScriptVariant_t end;
-
 	if ( !g_pScriptVM->GetValue( hTable, "start", &start ) )
 	{
 		return false;
 	}
 
+	ScriptVariant_t end;
 	if ( !g_pScriptVM->GetValue( hTable, "end", &end ) )
 	{
+		// 'start' exists, so release it
+		g_pScriptVM->ReleaseValue( start );
 		return false;
 	}
 
@@ -487,6 +488,12 @@ static bool ScriptTraceLineEx( const HSCRIPT hTable )
 	g_pScriptVM->SetValue( hTable, "surface_name", ScriptVariant_t( tr.surface.name ) );
 	g_pScriptVM->SetValue( hTable, "surface_flags", ScriptVariant_t( tr.surface.flags ) );
 	g_pScriptVM->SetValue( hTable, "surface_props", ScriptVariant_t( tr.surface.surfaceProps ) );
+
+	// Release variants we called GetValue on
+	g_pScriptVM->ReleaseValue( start );
+	g_pScriptVM->ReleaseValue( end );
+	g_pScriptVM->ReleaseValue( mask );
+	g_pScriptVM->ReleaseValue( ignore );
 
 	return true;
 }
@@ -554,7 +561,7 @@ bool Script_FMOD_PrecacheSound( const char *pszSound )
 	// Do this manually to dodge wasted precaches
 	if ( !DoesSoundFileExist( pszSound ) )
 	{
-		Warning( "FMOD_PrecacheSound: Couldn't find sound %s! File probably missing from disk", pszSound );
+		Warning( "FMOD_PrecacheSound: Couldn't find sound %s! File probably missing from disk\n", pszSound );
 		return false;
 	}
 
