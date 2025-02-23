@@ -933,6 +933,21 @@ public:
 	virtual bool SetValue( HSCRIPT hScope, const char *pszKey, const ScriptVariant_t &value ) = 0;
 	bool SetValue( const char *pszKey, const ScriptVariant_t &value )																{ return SetValue(NULL, pszKey, value ); }
 
+	// @NMRiH - Felis: Integrated leak fix from:
+	// https://github.com/ValveSoftware/source-sdk-2013/pull/679
+	//
+	// temporary objects take this path to be automatically released
+	bool SetValue( HSCRIPT hScope, const char *pszKey, ScriptVariant_t &&value )
+	{
+		bool bRet = SetValue( hScope, pszKey, value );
+		value.Free();
+		return bRet;
+	}
+	bool SetValue( const char *pszKey, ScriptVariant_t &&value )
+	{
+		return SetValue( NULL, pszKey, std::move( value ) );
+	}
+
 	virtual bool SetValue( HSCRIPT hScope, const ScriptVariant_t& key, const ScriptVariant_t& val ) = 0;
 
 	virtual void CreateTable( ScriptVariant_t &Table ) = 0;
@@ -1643,6 +1658,9 @@ public:
 		{
 			m_hfnHookFunc = g_pScriptVM->LookupFunction( "Call", hHooks );
 		}
+
+		// @NMRiH - Felis: Leak fix
+		g_pScriptVM->ReleaseValue( hHooks );
 
 		Clear();
 	}

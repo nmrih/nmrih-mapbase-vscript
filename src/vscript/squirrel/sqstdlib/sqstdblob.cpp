@@ -7,6 +7,9 @@
 #include "sqstdstream.h"
 #include "sqstdblobimpl.h"
 
+// @NMRiH - Felis: Keep track of total memory that blobs have alloc'd
+SQUnsignedInteger g_SQBlobTotalAlloced = 0;
+
 #define SQSTD_BLOB_TYPE_TAG ((SQUnsignedInteger)(SQSTD_STREAM_TYPE_TAG | 0x00000002))
 
 //Blob
@@ -138,6 +141,12 @@ static SQInteger _blob_constructor(HSQUIRRELVM v)
     if(size < 0) return sq_throwerror(v, _SC("cannot create blob with negative size"));
     //SQBlob *b = new SQBlob(size);
 
+    // @NMRiH - Felis: Enforce limits
+    if (size > NMRIH_SQ_BLOB_MAX_SIZE)
+        return sq_throwerror(v, _SC("blob too large"));
+    if ((g_SQBlobTotalAlloced + size) > NMRIH_SQ_BLOB_MAX_TOTAL_SIZE)
+        return sq_throwerror(v, _SC("blob alloc full"));
+
     SQBlob *b = new (sq_malloc(sizeof(SQBlob)))SQBlob(size);
     if(SQ_FAILED(sq_setinstanceup(v,1,b))) {
         b->~SQBlob();
@@ -156,6 +165,11 @@ static SQInteger _blob__cloned(HSQUIRRELVM v)
             return SQ_ERROR;
     }
     //SQBlob *thisone = new SQBlob(other->Len());
+
+    // @NMRiH - Felis: Enforce limits
+    if ((g_SQBlobTotalAlloced + other->Len()) > NMRIH_SQ_BLOB_MAX_TOTAL_SIZE)
+        return sq_throwerror(v, _SC("blob alloc full"));
+
     SQBlob *thisone = new (sq_malloc(sizeof(SQBlob)))SQBlob(other->Len());
     memcpy(thisone->GetBuf(),other->GetBuf(),thisone->Len());
     if(SQ_FAILED(sq_setinstanceup(v,1,thisone))) {

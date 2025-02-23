@@ -2,6 +2,11 @@
 #ifndef _SQSTD_BLOBIMPL_H_
 #define _SQSTD_BLOBIMPL_H_
 
+// @NMRiH - Felis: Limit single blob size to 16MB, all blobs to 32MB
+#define NMRIH_SQ_BLOB_MAX_SIZE 16777216
+#define NMRIH_SQ_BLOB_MAX_TOTAL_SIZE 33554432
+extern SQUnsignedInteger g_SQBlobTotalAlloced;
+
 struct SQBlob : public SQStream
 {
     SQBlob(SQInteger size) {
@@ -11,9 +16,15 @@ struct SQBlob : public SQStream
         memset(_buf, 0, _size);
         _ptr = 0;
         _owns = true;
+
+        // @NMRiH - Felis
+        g_SQBlobTotalAlloced += size;
     }
     virtual ~SQBlob() {
         sq_free(_buf, _allocated);
+
+        // @NMRiH - Felis
+        g_SQBlobTotalAlloced -= _allocated;
     }
     SQInteger Write(void *buffer, SQInteger size) {
         if(!CanAdvance(size)) {
@@ -36,7 +47,17 @@ struct SQBlob : public SQStream
     }
     bool Resize(SQInteger n) {
         if(!_owns) return false;
+
+        // @NMRiH - Felis: Enforce limit
+        if (n > NMRIH_SQ_BLOB_MAX_SIZE)
+            return false;
+
         if(n != _allocated) {
+
+            // @NMRiH - Felis: See if resizing would exhaust the total limit
+            if (((g_SQBlobTotalAlloced - _allocated) + n) > NMRIH_SQ_BLOB_MAX_TOTAL_SIZE)
+                return false;
+
             unsigned char *newbuf = (unsigned char *)sq_malloc(n);
             memset(newbuf,0,n);
             if(_size > n)
@@ -44,6 +65,11 @@ struct SQBlob : public SQStream
             else
                 memcpy(newbuf,_buf,_size);
             sq_free(_buf,_allocated);
+
+            // @NMRiH - Felis: Refresh total usage
+            g_SQBlobTotalAlloced -= _allocated;
+            g_SQBlobTotalAlloced += n;
+
             _buf=newbuf;
             _allocated = n;
             if(_size > _allocated)
