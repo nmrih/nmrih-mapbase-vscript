@@ -15,8 +15,6 @@
 
 #include "squirrel.h"
 #include "sqstdaux.h"
-// @NMRiH - Felis: We can have blobs
-#include "sqstdblob.h"
 //#include "sqstdblob.h"
 //#include "sqstdsystem.h"
 #include "sqstdtime.h"
@@ -32,9 +30,6 @@
 #include "squirrel/squirrel/sqfuncproto.h"
 #include "squirrel/squirrel/sqvm.h"
 #include "squirrel/squirrel/sqclosure.h"
-
-// @NMRiH - Felis
-#include "squirrel/squirrel/squserdata.h"
 
 #include "sqdbg.h"
 
@@ -2093,9 +2088,6 @@ bool SquirrelVM::Init()
 		// that also depends on compile errors not showing up and relies on IFilesystem with
 		// a path prefix.
 		//
-
-		// @NMRiH - Felis: We can have blobs
-		sqstd_register_bloblib( vm_ );
 		//sqstd_register_bloblib(vm_);
 		//sqstd_register_iolib(vm_);
 		//sqstd_register_systemlib(vm_);
@@ -2898,7 +2890,7 @@ void* SquirrelVM::GetInstanceValue(HSCRIPT hInstance, ScriptClassDesc_t* pExpect
 
 bool SquirrelVM::GenerateUniqueKey(const char* pszRoot, char* pBuf, int nBufSize)
 {
-	static int keyIdx = 0;
+	static unsigned keyIdx = 0;
 	// This gets used for script scope, still confused why it needs to be inside IScriptVM
 	// is it just to be a compatible name for CreateScope?
 	V_snprintf(pBuf, nBufSize, "%08X_%s", ++keyIdx, pszRoot);

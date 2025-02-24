@@ -596,6 +596,14 @@ void RegisterSharedScriptConstants()
 
 #endif
 
+	// @NMRiH - Felis: Our AI classes
+	ScriptRegisterConstant( g_pScriptVM, CLASS_PLAYER_ALLY_VITAL, "Reserved for vital player allies." );
+	ScriptRegisterConstant( g_pScriptVM, CLASS_ZOMBIE, "Used by the living dead." );
+	ScriptRegisterConstant( g_pScriptVM, CLASS_NPC, "Reserved for generic NPCs." );
+	ScriptRegisterConstant( g_pScriptVM, CLASS_NATIONAL_GUARD, "Reserved for the National Guard." );
+	ScriptRegisterConstant( g_pScriptVM, CLASS_BULLSEYE, "Used by npc_bullseye." );
+	ScriptRegisterConstant( g_pScriptVM, CLASS_EARTH_FAUNA, "Used by birds." );
+
 	ScriptRegisterConstant( g_pScriptVM, NUM_AI_CLASSES, "Number of AI classes." );
 
 	// 
