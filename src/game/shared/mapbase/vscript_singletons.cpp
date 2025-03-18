@@ -1614,7 +1614,7 @@ public:
 #define SetProp( type, name )\
 	void SetProp##name( HSCRIPT hEnt, const char* szProp, type value )\
 	{\
-		return SetProp##name##Array( hEnt, szProp, value, 0 );\
+		SetProp##name##Array( hEnt, szProp, value, 0 );\
 	}
 
 	GetProp( int, Int );
@@ -1623,8 +1623,8 @@ public:
 	SetProp( float, Float );
 	GetProp( HSCRIPT, Entity );
 	SetProp( HSCRIPT, Entity );
-	GetProp( Vector, Vector );
-	SetProp( Vector, Vector );
+	GetProp( const Vector&, Vector );
+	SetProp( const Vector&, Vector );
 	GetProp( const char*, String );
 	SetProp( const char*, String );
 
@@ -4902,45 +4902,120 @@ public:
 	HSCRIPT m_hCallback;
 };
 
+// @NMRiH - Felis: Replacing with dicts
+static CUtlDict<bool> g_ConVarsBlocked;
+static CUtlDict<bool> g_ConCommandsOverridable;
+static CUtlDict<CScriptConCommand *> g_ScriptConCommands;
+static CUtlDict<CScriptConVar *> g_ScriptConVars;
+/*
 static CUtlMap< unsigned int, bool > g_ConVarsBlocked( DefLessFunc(unsigned int) );
 static CUtlMap< unsigned int, bool > g_ConCommandsOverridable( DefLessFunc(unsigned int) );
 static CUtlMap< unsigned int, CScriptConCommand* > g_ScriptConCommands( DefLessFunc(unsigned int) );
 static CUtlMap< unsigned int, CScriptConVar* > g_ScriptConVars( DefLessFunc(unsigned int) );
+*/
 
+// @NMRiH - Felis
+static ConVar g_ScriptConVarDummy( "", "0" );
 
 class CScriptConvarAccessor : public CAutoGameSystem
 {
 	// @NMRiH - Felis
-	enum CvarSetterAccess_t
+	enum ConVarSetterAccess_t
 	{
-		REJECTED = 0, // Privilege escalation
-		ALLOWED, // Cvar set by script
-		RULESET, // Use ruleset sandbox
+		REJECTED = 0,	// Privilege escalation
+		ALLOWED,		// Cvar set by script
+		RULESET,		// Use ruleset sandbox
 	};
 
+	// @NMRiH - Felis: Wrapper that tries to find script cvar first and FindVar last
+	class ScriptConVarRef
+	{
+	public:
+		FORCEINLINE ScriptConVarRef( const char *pszName )
+		{
+			const int idx = g_ScriptConVars.Find( pszName );
+			m_bScriptConVar = idx != g_ScriptConVars.InvalidIndex();
+			if ( m_bScriptConVar )
+			{
+				m_pConVar = g_ScriptConVars[idx];
+			}
+			else
+			{
+				m_pConVar = g_pCVar->FindVar( pszName );
+			}
+
+			if ( !m_pConVar || m_pConVar->IsFlagSet( FCVAR_SERVER_CANNOT_QUERY ) )
+			{
+				DevWarning( "Script error! ConVar %s not found!\n", pszName );
+				m_pConVar = &g_ScriptConVarDummy;
+			}
+		}
+
+		FORCEINLINE float GetFloat() const { return m_pConVar->GetFloat(); }
+		FORCEINLINE int GetInt() const { return m_pConVar->GetInt(); }
+		FORCEINLINE bool GetBool() const { return !!GetInt(); }
+		FORCEINLINE const char *GetString() const { return m_pConVar->GetString(); }
+		FORCEINLINE const char *GetDefault() const { return m_pConVar->GetDefault(); }
+		FORCEINLINE const char *GetName() const { return m_pConVar->GetName(); }
+		FORCEINLINE IConVar *GetLinkedConVar() const { return m_pConVar; }
+		FORCEINLINE bool IsFlagSet( const int flags ) const { return m_pConVar->IsFlagSet( flags ) != 0; }
+		FORCEINLINE bool IsValid() const { return m_pConVar != &g_ScriptConVarDummy; }
+		FORCEINLINE bool IsScriptConVar() const { return m_bScriptConVar; }
+
+		template <typename T>
+		FORCEINLINE void SetValue( T value ) { m_pConVar->SetValue( value ); }
+
+	private:
+		ConVar *m_pConVar;
+		bool m_bScriptConVar;
+	};
+
+	// @NMRiH - Felis: Unused
+	/*
 public:
 	static inline unsigned int Hash( const char*sz ){ return HashStringCaseless(sz); }
+	*/
 
 public:
 	inline void AddOverridable( const char *name )
 	{
+		// @NMRiH - Felis
+		g_ConCommandsOverridable.Insert( name, true );
+		/*
 		g_ConCommandsOverridable.InsertOrReplace( Hash(name), true );
+		*/
 	}
 
+	// @NMRiH - Felis
+	inline bool IsOverridable( const char *name )
+	{
+		const int idx = g_ConCommandsOverridable.Find( name );
+		return ( idx != g_ConCommandsOverridable.InvalidIndex() );
+	}
+	/*
 	inline bool IsOverridable( unsigned int hash )
 	{
 		int idx = g_ConCommandsOverridable.Find( hash );
 		return ( idx != g_ConCommandsOverridable.InvalidIndex() );
 	}
+	*/
 
 	inline void AddBlockedConVar( const char *name )
 	{
+		// @NMRiH - Felis
+		g_ConVarsBlocked.Insert( name, true );
+		/*
 		g_ConVarsBlocked.InsertOrReplace( Hash(name), true );
+		*/
 	}
 
 	inline bool IsBlockedConvar( const char *name )
 	{
+		// @NMRiH - Felis
+		const int idx = g_ConVarsBlocked.Find( name );
+		/*
 		int idx = g_ConVarsBlocked.Find( Hash(name) );
+		*/
 		return ( idx != g_ConVarsBlocked.InvalidIndex() );
 	}
 
@@ -4981,6 +5056,14 @@ public:
 	}
 
 public:
+	// @NMRiH - Felis: Replacing all these getters to find script cvar first, dodges expensive FindVar
+	float GetFloat( const char *pszConVar ) { return ScriptConVarRef( pszConVar ).GetFloat(); }
+	int GetInt( const char *pszConVar ) { return ScriptConVarRef( pszConVar ).GetInt(); }
+	bool GetBool( const char *pszConVar ) { return ScriptConVarRef( pszConVar ).GetBool(); }
+	const char *GetStr( const char *pszConVar ) { return ScriptConVarRef( pszConVar ).GetString(); }
+	const char *GetDefaultValue( const char *pszConVar ) { return ScriptConVarRef( pszConVar ).GetDefault(); }
+	bool IsFlagSet( const char *pszConVar, const int flags ) { return ScriptConVarRef( pszConVar ).IsFlagSet( flags ); }
+	/*
 	float GetFloat( const char *pszConVar )
 	{
 		ConVarRef cvar( pszConVar );
@@ -5024,21 +5107,17 @@ public:
 		ConVarRef cvar( pszConVar );
 		return cvar.IsFlagSet( nFlags );
 	}
+	*/
 
 	void SetFloat( const char *pszConVar, float value )
 	{
 		// @NMRiH - Felis
-		ConVarRef cvarRef = ConVarRef( pszConVar );
+		ScriptConVarRef cvarRef = ScriptConVarRef( pszConVar );
 		switch ( GetSetterAccess( cvarRef ) )
 		{
-			case ALLOWED:
-				cvarRef.SetValue( value );
-				break;
-			case REJECTED:
-				break;
-			case RULESET:
-				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), UTIL_VarArgs( "%f", value ), RULESET_MODIFIED_CVAR_VSCRIPT );
-				break;
+			case ALLOWED: cvarRef.SetValue( value ); break;
+			case REJECTED: break;
+			case RULESET: GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), UTIL_VarArgs( "%f", value ), RULESET_MODIFIED_CVAR_VSCRIPT ); break;
 		}
 		/*
 		SetValue( pszConVar, value );
@@ -5048,17 +5127,12 @@ public:
 	void SetInt( const char *pszConVar, int value )
 	{
 		// @NMRiH - Felis
-		ConVarRef cvarRef = ConVarRef( pszConVar );
+		ScriptConVarRef cvarRef = ScriptConVarRef( pszConVar );
 		switch ( GetSetterAccess( cvarRef ) )
 		{
-			case ALLOWED:
-				cvarRef.SetValue( value );
-				break;
-			case REJECTED:
-				break;
-			case RULESET:
-				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), UTIL_VarArgs( "%d", value ), RULESET_MODIFIED_CVAR_VSCRIPT );
-				break;
+			case ALLOWED: cvarRef.SetValue( value ); break;
+			case REJECTED: break;
+			case RULESET: GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), UTIL_VarArgs( "%d", value ), RULESET_MODIFIED_CVAR_VSCRIPT ); break;
 		}
 		/*
 		SetValue( pszConVar, value );
@@ -5068,17 +5142,12 @@ public:
 	void SetBool( const char *pszConVar, bool value )
 	{
 		// @NMRiH - Felis
-		ConVarRef cvarRef = ConVarRef( pszConVar );
+		ScriptConVarRef cvarRef = ScriptConVarRef( pszConVar );
 		switch ( GetSetterAccess( cvarRef ) )
 		{
-			case ALLOWED:
-				cvarRef.SetValue( value );
-				break;
-			case REJECTED:
-				break;
-			case RULESET:
-				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), !value ? "0" : "1", RULESET_MODIFIED_CVAR_VSCRIPT );
-				break;
+			case ALLOWED: cvarRef.SetValue( value ); break;
+			case REJECTED: break;
+			case RULESET: GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), !value ? "0" : "1", RULESET_MODIFIED_CVAR_VSCRIPT ); break;
 		}
 		/*
 		SetValue( pszConVar, value );
@@ -5088,17 +5157,12 @@ public:
 	void SetStr( const char *pszConVar, const char *value )
 	{
 		// @NMRiH - Felis
-		ConVarRef cvarRef = ConVarRef( pszConVar );
+		ScriptConVarRef cvarRef = ScriptConVarRef( pszConVar );
 		switch ( GetSetterAccess( cvarRef ) )
 		{
-			case ALLOWED:
-				cvarRef.SetValue( value );
-				break;
-			case REJECTED:
-				break;
-			case RULESET:
-				GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), value, RULESET_MODIFIED_CVAR_VSCRIPT );
-				break;
+			case ALLOWED: cvarRef.SetValue( value ); break;
+			case REJECTED: break;
+			case RULESET: GetRulesetManager()->ApplyCvar( cvarRef.GetLinkedConVar(), value, RULESET_MODIFIED_CVAR_VSCRIPT ); break;
 		}
 		/*
 		SetValue( pszConVar, value );
@@ -5106,27 +5170,24 @@ public:
 	}
 
 	// @NMRiH - Felis: Pre-conditions for setting a value
-	CvarSetterAccess_t GetSetterAccess( const ConVarRef &cvarRef )
+	ConVarSetterAccess_t GetSetterAccess( const ScriptConVarRef &cvarRef )
 	{
 		if ( !cvarRef.IsValid() )
-			return REJECTED;
-
-		if ( cvarRef.IsFlagSet( FCVAR_NOT_CONNECTED | FCVAR_SERVER_CANNOT_QUERY ) )
-			return REJECTED;
-
-		const char *pszName = cvarRef.GetName();
-		if ( IsBlockedConvar( pszName ) )
 			return REJECTED;
 
 		// Setting cvars is another privilege escalation
 		// Only allow cvars that are registered by the scripts for now
 		// Later we can add some -unsafescript switch for daring admins
-		const int idx = g_ScriptConVars.Find( Hash( pszName ) );
-		if ( idx == g_ScriptConVars.InvalidIndex() )
+		if ( !cvarRef.IsScriptConVar() )
 		{
+			const char *pszName = cvarRef.GetName();
+			if ( IsBlockedConvar( pszName ) )
+				return REJECTED;
+
 			// Make an exception if this is a ruleset validated cvar
 			if ( GetRulesetManager()->IsCvarValidated( pszName ) )
 			{
+				// Sandboxed
 				return RULESET;
 			}
 
@@ -5163,13 +5224,22 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 {
 	// @NMRiH - Felis: Use persistent handle
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
-	
+
+	// @NMRiH - Felis
+	const int idx = g_ScriptConCommands.Find( name );
+	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
+	*/
 	if ( idx == g_ScriptConCommands.InvalidIndex() )
 	{
 		ConCommandBase *pBase = g_pCVar->FindCommandBase(name);
+
+		// @NMRiH - Felis
+		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( name ) ) )
+		/*
 		if ( pBase && ( !pBase->IsCommand() || !IsOverridable(hash) ) )
+		*/
 		{
 			DevWarning( 1, "CScriptConvarAccessor::RegisterCommand unable to register blocked ConCommand: %s\n", name );
 			return;
@@ -5179,7 +5249,12 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 			return;
 
 		CScriptConCommand *p = new CScriptConCommand( name, fn, helpString, flags, static_cast< ConCommand* >(pBase) );
+
+		// @NMRiH - Felis
+		g_ScriptConCommands.Insert( name, p );
+		/*
 		g_ScriptConCommands.Insert( hash, p );
+		*/
 	}
 	else
 	{
@@ -5199,12 +5274,11 @@ void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, 
 {
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
-	const unsigned int hash = Hash( name );
-	const int idx = g_ScriptConCommands.Find( hash );
+	const int idx = g_ScriptConCommands.Find( name );
 	if ( idx == g_ScriptConCommands.InvalidIndex() )
 	{
 		ConCommandBase *pBase = g_pCVar->FindCommandBase( name );
-		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( hash ) ) )
+		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( name ) ) )
 		{
 			DevWarning( 1, "CScriptConvarAccessor::RegisterAdminCommand unable to register blocked ConCommand: %s\n", name );
 			return;
@@ -5215,7 +5289,7 @@ void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, 
 
 		CScriptConCommand *p = new CScriptConCommand( name, fn, helpString, flags, static_cast<ConCommand *>( pBase ) );
 		p->SetAdminOnly( true );
-		g_ScriptConCommands.Insert( hash, p );
+		g_ScriptConCommands.Insert( name, p );
 	}
 	else
 	{
@@ -5230,8 +5304,12 @@ void CScriptConvarAccessor::SetCompletionCallback( const char *name, HSCRIPT fn 
 	// @NMRiH - Felis: Use persistent handle
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
+	// @NMRiH - Felis
+	const int idx = g_ScriptConCommands.Find( name );
+	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
+	*/
 	if ( idx != g_ScriptConCommands.InvalidIndex() )
 	{
 		g_ScriptConCommands[idx]->SetCompletionCallback( fn );
@@ -5240,8 +5318,12 @@ void CScriptConvarAccessor::SetCompletionCallback( const char *name, HSCRIPT fn 
 
 void CScriptConvarAccessor::UnregisterCommand( const char *name )
 {
+	// @NMRiH - Felis
+	const int idx = g_ScriptConCommands.Find( name );
+	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
+	*/
 	if ( idx != g_ScriptConCommands.InvalidIndex() )
 	{
 		g_ScriptConCommands[idx]->Unregister();
@@ -5251,8 +5333,13 @@ void CScriptConvarAccessor::UnregisterCommand( const char *name )
 void CScriptConvarAccessor::RegisterConvar( const char *name, const char *pDefaultValue, const char *helpString, int flags )
 {
 	Assert( g_pCVar );
+
+	// @NMRiH - Felis
+	const int idx = g_ScriptConVars.Find( name );
+	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConVars.Find(hash);
+	*/
 	if ( idx == g_ScriptConVars.InvalidIndex() )
 	{
 		if ( g_pCVar->FindCommandBase(name) )
@@ -5262,7 +5349,12 @@ void CScriptConvarAccessor::RegisterConvar( const char *name, const char *pDefau
 		}
 
 		CScriptConVar *p = new CScriptConVar( name, pDefaultValue, helpString, flags );
+
+		// @NMRiH - Felis
+		g_ScriptConVars.Insert( name, p );
+		/*
 		g_ScriptConVars.Insert( hash, p );
+		*/
 	}
 	else
 	{
@@ -5275,8 +5367,12 @@ void CScriptConvarAccessor::SetChangeCallback( const char *name, HSCRIPT fn )
 	// @NMRiH - Felis: Use persistent handle
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
+	// @NMRiH - Felis
+	const int idx = g_ScriptConVars.Find( name );
+	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConVars.Find(hash);
+	*/
 	if ( idx != g_ScriptConVars.InvalidIndex() )
 	{
 		g_ScriptConVars[idx]->SetChangeCallback( fn );
@@ -5287,8 +5383,13 @@ void ScriptConVarCallback( IConVar *var, const char* pszOldValue, float flOldVal
 {
 	ConVar *cvar = (ConVar*)var;
 	const char *name = cvar->GetName();
+
+	// @NMRiH - Felis
+	const int idx = g_ScriptConVars.Find( name );
+	/*
 	unsigned int hash = CScriptConvarAccessor::Hash( name );
 	int idx = g_ScriptConVars.Find(hash);
+	*/
 	if ( idx != g_ScriptConVars.InvalidIndex() )
 	{
 		Assert( g_ScriptConVars[idx]->m_hCallback );
@@ -5736,8 +5837,7 @@ END_SCRIPTDESC();
 
 // @NMRiH - Felis: Begin nav mesh stuff
 #ifndef CLIENT_DLL
-static CScriptNavAreaCollector s_ScriptNavAreaCollector( "CScriptNavAreaCollector" );
-CScriptNavAreaCollector *g_ScriptNavAreaCollector = &s_ScriptNavAreaCollector;
+static CScriptNavAreaCollector g_ScriptNavAreaCollector( "CScriptNavAreaCollector" );
 
 //-----------------------------------------------------------------------------
 // @NMRiH - Felis: Basic nav area construct, acts as a proxy for actual nav data
@@ -5747,7 +5847,7 @@ class CScriptNavArea
 public:
 	CScriptNavArea( const CNavArea *pSource )
 	{
-		m_CachedID = pSource ? pSource->GetID() : 0xFFFFFFFF;
+		m_CachedID = pSource->GetID();
 		m_hScriptInstance = g_pScriptVM->RegisterInstance( this );
 	}
 
@@ -5765,6 +5865,7 @@ public:
 		}
 	}
 
+	unsigned int GetCachedID() const { return m_CachedID; }
 	HSCRIPT GetScriptInstance() const { return m_hScriptInstance; }
 
 	void AddIncomingConnection( const HSCRIPT hArea, const int dir ) const
@@ -6020,12 +6121,12 @@ public:
 protected:
 	CNavArea *GetArea() const
 	{
-		return CScriptNavAreaCollector::GetArea( this );
+		return TheNavMesh->GetNavAreaByID( m_CachedID );
 	}
 
 	static HSCRIPT ToAreaHandle( const CNavArea *pArea )
 	{
-		return g_ScriptNavAreaCollector->GetScriptInstance( pArea );
+		return g_ScriptNavAreaCollector.GetScriptInstance( pArea );
 	}
 
 	static CNavArea *HandleToArea( const HSCRIPT hArea )
@@ -6037,7 +6138,7 @@ protected:
 			return NULL;
 		}
 
-		return CScriptNavAreaCollector::GetArea( pScript );
+		return TheNavMesh->GetNavAreaByID( pScript->GetCachedID() );
 	}
 
 	static NavDirType GetSafeNavDirType( const int dir )
@@ -6184,7 +6285,7 @@ CScriptNavArea *CScriptNavAreaCollector::GetByID( const unsigned int id )
 
 CNavArea *CScriptNavAreaCollector::GetArea( const CScriptNavArea *pScript )
 {
-	return pScript ? TheNavMesh->GetNavAreaByID( pScript->GetID() ) : NULL;
+	return pScript ? TheNavMesh->GetNavAreaByID( pScript->GetCachedID() ) : NULL;
 }
 
 // Returns script instance for given nav area, registers new when not found
@@ -6213,12 +6314,12 @@ class CScriptNavMesh
 public:
 	HSCRIPT GetNavArea( const Vector &vecOrigin, const float flBeneath )
 	{
-		return g_ScriptNavAreaCollector->GetScriptInstance( TheNavMesh->GetNavArea( vecOrigin, flBeneath ) );
+		return g_ScriptNavAreaCollector.GetScriptInstance( TheNavMesh->GetNavArea( vecOrigin, flBeneath ) );
 	}
 
 	HSCRIPT GetNavAreaByID( const int areaID )
 	{
-		return g_ScriptNavAreaCollector->GetScriptInstance( TheNavMesh->GetNavAreaByID( areaID ) );
+		return g_ScriptNavAreaCollector.GetScriptInstance( TheNavMesh->GetNavAreaByID( areaID ) );
 	}
 
 	int GetNavAreaCount()
@@ -6229,7 +6330,7 @@ public:
 	HSCRIPT GetNearestNavArea( const Vector &vecOrigin, const float flMaxDist, const bool bCheckLOS, const bool bCheckGround )
 	{
 		// Note: anyZ is unused
-		return g_ScriptNavAreaCollector->GetScriptInstance( TheNavMesh->GetNearestNavArea( vecOrigin, false, flMaxDist, bCheckLOS, bCheckGround ) );
+		return g_ScriptNavAreaCollector.GetScriptInstance( TheNavMesh->GetNearestNavArea( vecOrigin, false, flMaxDist, bCheckLOS, bCheckGround ) );
 	}
 
 	void RegisterAvoidanceObstacle( const HSCRIPT hEntity )
@@ -6272,7 +6373,7 @@ public:
 		{
 			char szKeyName[64];
 			V_sprintf_safe( szKeyName, "area%d", areaIndex );
-			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector->GetScriptInstance( TheNavAreas[i] ) );
+			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( TheNavAreas[i] ) );
 
 			++areaIndex;
 		}
@@ -6292,7 +6393,7 @@ public:
 		{
 			char szKeyName[64];
 			V_sprintf_safe( szKeyName, "area%d", i );
-			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector->GetScriptInstance( TheNavAreas[i] ) );
+			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( collector.m_area[i] ) );
 		}
 	}
 
@@ -6334,7 +6435,7 @@ public:
 		{
 			char szKeyName[64];
 			V_sprintf_safe( szKeyName, "area%d", areaIndex );
-			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector->GetScriptInstance( pArea->GetParent() ) );
+			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( pArea->GetParent() ) );
 
 			++areaIndex;
 		}

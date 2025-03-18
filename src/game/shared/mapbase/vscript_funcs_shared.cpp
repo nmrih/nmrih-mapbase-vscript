@@ -928,6 +928,21 @@ static void ScriptDispatchParticleEffectByAttachment( const char *pszParticleNam
 	DispatchParticleEffect( pszParticleName, particleAttachment, ToEnt( hEntity ), pszAttachmentName, bResetAllParticlesOnEntity );
 }
 
+// @NMRiH - Felis: Tracer effect
+void ScriptTracerEffect( const Vector &vecStart, const Vector &vecEnd,
+				   const int iEntIndex, const int iAttachment, const float flVelocity,
+				   const bool bWhiz, const char *pszCustomTracerName )
+{
+	UTIL_Tracer( vecStart, vecEnd, iEntIndex, iAttachment, flVelocity, bWhiz, pszCustomTracerName );
+}
+
+// @NMRiH - Felis: Tracer effect, with particles this time
+void ScriptParticleTracerEffect( const char *pszTracerEffectName, const Vector &vecStart, const Vector &vecEnd,
+						   const int iEntIndex, const int iAttachment, const bool bWhiz )
+{
+	UTIL_ParticleTracer( pszTracerEffectName, vecStart, vecEnd, iEntIndex, iAttachment, bWhiz );
+}
+
 #ifndef CLIENT_DLL
 const Vector& ScriptPredictedPosition( HSCRIPT hTarget, float flTimeDelta )
 {
@@ -1117,6 +1132,12 @@ void RegisterSharedScriptFunctions()
 	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptCreateRope, "CreateRope", "Creates a single rope between two entities. Can optionally follow specific attachments." );
 
 	ScriptRegisterFunction( g_pScriptVM, EmitSoundParamsOn, "Play EmitSound_t params on an entity." );
+
+	// @NMRiH - Felis: Tracer effects
+	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptTracerEffect, "TracerEffect", "Makes a tracer effect using the old non-particle system effects. "
+		"Params: <startpos>, <endpos>, <target entity>, <entindex>, <attachment idx>, <velocity>, <should whiz?>, <custom tracer name>" );
+	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptParticleTracerEffect, "ParticleTracerEffect", "Makes a tracer effect by using a particle. "
+		"Params: <particle name>, <startpos>, <endpos>, <entindex>, <attachment idx>, <should whiz?>" );
 
 	/* @NMRiH - Felis: TODO: Integrate these
 	ScriptRegisterFunctionNamed( g_pScriptVM, ScriptMatcherMatch, "Matcher_Match", "Compares a string to a query using Mapbase's matcher system, supporting wildcards, RS matchers, etc." );

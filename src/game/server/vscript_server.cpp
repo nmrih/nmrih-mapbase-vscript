@@ -25,6 +25,9 @@
 
 extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
 
+// @NMRiH - Felis: Ported from Mapbase
+extern int vscript_debugger_port;
+
 // #define VMPROFILE 1
 
 #ifdef VMPROFILE
@@ -415,6 +418,86 @@ static float ScriptTraceLine( const Vector &vecStart, const Vector &vecEnd, HSCR
 	}
 }
 
+// @NMRiH - Felis: TraceLineEx, mimicking TF2 function
+static bool ScriptTraceLineEx( const HSCRIPT hTable )
+{
+	if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+	{
+		return false;
+	}
+
+	// Inputs
+	// Start and end are required
+	ScriptVariant_t start;
+	if ( !g_pScriptVM->GetValue( hTable, "start", &start ) )
+	{
+		return false;
+	}
+
+	ScriptVariant_t end;
+	if ( !g_pScriptVM->GetValue( hTable, "end", &end ) )
+	{
+		// 'start' exists, so release it
+		g_pScriptVM->ReleaseValue( start );
+		return false;
+	}
+
+	ScriptVariant_t mask( MASK_VISIBLE_AND_NPCS );
+	ScriptVariant_t ignore( (HSCRIPT)NULL );
+
+	g_pScriptVM->GetValue( hTable, "mask", &mask );
+	g_pScriptVM->GetValue( hTable, "ignore", &ignore );
+
+	// Trace
+	trace_t tr;
+	UTIL_TraceLine( *start.m_pVector, *end.m_pVector, mask.m_int, ToEnt( ignore.m_hScript ), COLLISION_GROUP_NONE, &tr );
+
+	const bool bDidHit = tr.DidHit();
+
+	// Outputs
+	g_pScriptVM->SetValue( hTable, "pos", ScriptVariant_t( tr.endpos ) );
+	g_pScriptVM->SetValue( hTable, "fraction", ScriptVariant_t( tr.fraction ) );
+	g_pScriptVM->SetValue( hTable, "hit", ScriptVariant_t( bDidHit ) );
+
+	if ( bDidHit )
+	{
+		// enthit is only written to the table when hitting something
+		g_pScriptVM->SetValue( hTable, "enthit", ScriptVariant_t( ToHScript( tr.m_pEnt ) ) );
+	}
+
+	if ( tr.startsolid )
+	{
+		// startsolid is only written when it's true
+		g_pScriptVM->SetValue( hTable, "startsolid", ScriptVariant_t( tr.startsolid ) );
+	}
+
+	if ( tr.allsolid )
+	{
+		// Ditto for allsolid
+		g_pScriptVM->SetValue( hTable, "allsolid", ScriptVariant_t( tr.allsolid ) );
+	}
+
+	g_pScriptVM->SetValue( hTable, "startpos", ScriptVariant_t( tr.startpos ) );
+	g_pScriptVM->SetValue( hTable, "endpos", ScriptVariant_t( tr.endpos ) );
+
+	// Plane
+	g_pScriptVM->SetValue( hTable, "plane_normal", ScriptVariant_t( tr.plane.normal ) );
+	g_pScriptVM->SetValue( hTable, "plane_dist", ScriptVariant_t( tr.plane.dist ) );
+
+	// Surface
+	g_pScriptVM->SetValue( hTable, "surface_name", ScriptVariant_t( tr.surface.name ) );
+	g_pScriptVM->SetValue( hTable, "surface_flags", ScriptVariant_t( tr.surface.flags ) );
+	g_pScriptVM->SetValue( hTable, "surface_props", ScriptVariant_t( tr.surface.surfaceProps ) );
+
+	// Release variants we called GetValue on
+	g_pScriptVM->ReleaseValue( start );
+	g_pScriptVM->ReleaseValue( end );
+	g_pScriptVM->ReleaseValue( mask );
+	g_pScriptVM->ReleaseValue( ignore );
+
+	return true;
+}
+
 #ifdef MAPBASE_VSCRIPT
 static bool CancelEntityIOEvent( int event )
 {
@@ -478,7 +561,7 @@ bool Script_FMOD_PrecacheSound( const char *pszSound )
 	// Do this manually to dodge wasted precaches
 	if ( !DoesSoundFileExist( pszSound ) )
 	{
-		Warning( "FMOD_PrecacheSound: Couldn't find sound %s! File probably missing from disk", pszSound );
+		Warning( "FMOD_PrecacheSound: Couldn't find sound %s! File probably missing from disk\n", pszSound );
 		return false;
 	}
 
@@ -569,6 +652,9 @@ bool VScriptServerInit()
 				ScriptRegisterFunction( g_pScriptVM, GetMapName, "Get the name of the map.");
 				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptTraceLine, "TraceLine", "given 2 points & ent to ignore, return fraction along line that hits world or models" );
 
+				// @NMRiH - Felis
+				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptTraceLineEx, "TraceLineEx", "Does a raycast along a line specified by two vectors, returning the first entity or geometry hit along the way. Results are written to the passed-in table. The input variables are kept in the table after the trace." );
+
 				ScriptRegisterFunction( g_pScriptVM, Time, "Get the current server time" );
 				ScriptRegisterFunction( g_pScriptVM, FrameTime, "Get the time spent on the server in the last frame" );
 
@@ -623,6 +709,12 @@ bool VScriptServerInit()
 
 				RegisterSharedScriptConstants();
 				RegisterSharedScriptFunctions();
+
+				if ( vscript_debugger_port )
+				{
+					g_pScriptVM->ConnectDebugger( vscript_debugger_port );
+					vscript_debugger_port = 0;
+				}
 
 				if (scriptLanguage == SL_SQUIRREL)
 				{
@@ -823,6 +915,35 @@ CON_COMMAND( script_reload_think, "Execute an activation script, replacing exist
 CON_COMMAND_F( script_dump_hooks, "", FCVAR_CHEAT )
 {
 	GetScriptHookManager().Dump();
+}
+
+// @NMRiH - Felis
+CON_COMMAND_F( script_dump_scope, "Usage: script_dump_scope <entindex>", FCVAR_CHEAT )
+{
+	int entindex = -1;
+	if ( *args[1] )
+	{
+		entindex = V_atoi( args[1] );
+	}
+
+	if ( entindex > -1 )
+	{
+		CBaseEntity *pEntity = CBaseEntity::Instance( entindex );
+		if ( !pEntity || !pEntity->m_ScriptScope.IsInitialized() )
+		{
+			Msg( "Entity has no script scope.\n" );
+		}
+		else
+		{
+			char szBuf[128];
+			V_sprintf_safe( szBuf, "__DumpScopeSorted(0, EntIndexToHScript(%d).GetScriptScope())", entindex );
+			g_pScriptVM->Run( szBuf );
+		}
+	}
+	else
+	{
+		g_pScriptVM->Run( "__DumpScopeSorted(0, getroottable())" );
+	}
 }
 
 class CVScriptGameSystem : public CAutoGameSystemPerFrame

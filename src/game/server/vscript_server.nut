@@ -164,4 +164,113 @@ function __DumpScope( depth, table )
 	}
 }
 
+// @NMRiH - Felis: Sorted list for script_dump_scope
+function __recurse_sort_table(depth, table, list)
+{
+	foreach (key, value in table)
+	{
+		local subidx = 0;
+		local t = {};
+		t.name <- key;
+		t.__type <- type(value);
+		switch (t.__type)
+		{
+			case "table":
+			case "array":
+				local sublist = [];
+				__recurse_sort_table(depth + 1, value, sublist);
+				foreach (_, sub in sublist)
+					t[++subidx] <- sub;
+				break;
+			case "string":
+			default:
+				t.value <- value;
+				break;
+		}
+	   
+		list.push(t);
+		list.sort(@(a,b) a.name <=> b.name);
+	}
+}
+
+function __recurse_print_sortlist(depth, list)
+{
+	local __indent=function(count)
+	{
+		for (local i = 0; i < count; i++)
+			print("   ");
+	}
+	
+	foreach (_, sub in list)
+	{
+		if (type(sub) != "table")
+			continue;
+
+		__indent(depth);
+		print(sub.name);
+		switch (sub.__type)
+		{
+			case "table":
+				print("(TABLE)\n");
+				__indent(depth);
+				print("{\n");
+				__recurse_print_sortlist(depth + 1, sub);
+				__indent(depth);
+				print("}");
+				break;
+			case "array":
+				print("(ARRAY)\n");
+				__indent(depth);
+				print("[\n")
+				__recurse_print_sortlist(depth + 1, sub);
+				__indent(depth);
+				print("]");
+				break;
+			case "string":
+				print(" = \"");
+				print(sub.value);
+				print("\"");
+				break;
+			default:
+				print(" = ");
+				print(sub.value);
+				break;
+		}
+		print("\n");  
+	}
+}
+
+function __DumpScopeSorted(depth, table)
+{
+	local list = [];
+	__recurse_sort_table(depth, table, list);
+	__recurse_print_sortlist(0, list);
+}
+
+// @NMRiH - Felis
+function DeepPrintTable(debugTable, prefix = "")
+{
+	if (prefix == "")
+	{
+		printl(prefix + debugTable)
+		printl("{")
+		prefix = "	 "
+	}
+	foreach (idx, val in debugTable)
+	{
+		if (typeof(val) == "table")
+		{
+			printl( prefix + idx + " = \n" + prefix + "{")
+			DeepPrintTable( val, prefix + "	  " )
+			printl(prefix + "}")
+		}
+		else if (typeof(val) == "string")
+			printl(prefix + idx + "\t= \"" + val + "\"")
+		else
+			printl(prefix + idx + "\t= " + val)
+	}
+	if (prefix == "	  ")
+		printl("}")
+}
+
 )vscript";
