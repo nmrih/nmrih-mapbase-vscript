@@ -157,16 +157,13 @@ class CNavArea;
 
 struct ScriptNavAreaPathParams_t
 {
-	ScriptNavAreaPathParams_t( CNavArea **ppClosestArea = NULL,
-		const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false )
+	ScriptNavAreaPathParams_t( const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false )
 	{
-		m_ppClosestArea = ppClosestArea;
 		m_flMaxPathLength = flMaxPathLength;
 		m_iTeamID = teamID;
 		m_bIgnoreNavBlockers = bIgnoreNavBlockers;
 	}
 
-	CNavArea **m_ppClosestArea;
 	float m_flMaxPathLength;
 	int m_iTeamID;
 	bool m_bIgnoreNavBlockers;
