@@ -840,6 +840,9 @@ static void ScriptInsertSound( int iType, const Vector &vecOrigin, int iVolume, 
 
 static void ScriptEntitiesInBox( HSCRIPT hTable, int listMax, const Vector &hullMin, const Vector &hullMax, int iMask )
 {
+	// @NMRiH - Felis: Bounds check
+	listMax = clamp<int>( listMax, 0, 1024 );
+
 	CBaseEntity *list[1024];
 	int count = UTIL_EntitiesInBox( list, listMax, hullMin, hullMax, iMask );
 
@@ -851,6 +854,9 @@ static void ScriptEntitiesInBox( HSCRIPT hTable, int listMax, const Vector &hull
 
 static void ScriptEntitiesAtPoint( HSCRIPT hTable, int listMax, const Vector &point, int iMask )
 {
+	// @NMRiH - Felis: Bounds check
+	listMax = clamp<int>( listMax, 0, 1024 );
+
 	CBaseEntity *list[1024];
 	int count = UTIL_EntitiesAtPoint( list, listMax, point, iMask );
 
@@ -862,6 +868,9 @@ static void ScriptEntitiesAtPoint( HSCRIPT hTable, int listMax, const Vector &po
 
 static void ScriptEntitiesInSphere( HSCRIPT hTable, int listMax, const Vector &center, float radius, int iMask )
 {
+	// @NMRiH - Felis: Bounds check
+	listMax = clamp<int>( listMax, 0, 1024 );
+
 	CBaseEntity *list[1024];
 	int count = UTIL_EntitiesInSphere( list, listMax, center, radius, iMask );
 

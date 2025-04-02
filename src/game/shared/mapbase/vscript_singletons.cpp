@@ -4902,13 +4902,16 @@ public:
 	HSCRIPT m_hCallback;
 };
 
-// @NMRiH - Felis: Replacing with dicts
-static CUtlDict<bool> g_ConVarsBlocked;
-static CUtlDict<bool> g_ConCommandsOverridable;
-static CUtlDict<CScriptConCommand *> g_ScriptConCommands;
-static CUtlDict<CScriptConVar *> g_ScriptConVars;
+// @NMRiH - Felis: Replaced by ruleset system
 /*
 static CUtlMap< unsigned int, bool > g_ConVarsBlocked( DefLessFunc(unsigned int) );
+*/
+
+// @NMRiH - Felis: Use signed int as index
+static CUtlMap<unsigned int, bool, int> g_ConCommandsOverridable( DefLessFunc(unsigned int) );
+static CUtlMap<unsigned int, CScriptConCommand*, int> g_ScriptConCommands( DefLessFunc(unsigned int) );
+static CUtlMap<unsigned int, CScriptConVar*, int> g_ScriptConVars( DefLessFunc(unsigned int) );
+/*
 static CUtlMap< unsigned int, bool > g_ConCommandsOverridable( DefLessFunc(unsigned int) );
 static CUtlMap< unsigned int, CScriptConCommand* > g_ScriptConCommands( DefLessFunc(unsigned int) );
 static CUtlMap< unsigned int, CScriptConVar* > g_ScriptConVars( DefLessFunc(unsigned int) );
@@ -4916,6 +4919,39 @@ static CUtlMap< unsigned int, CScriptConVar* > g_ScriptConVars( DefLessFunc(unsi
 
 // @NMRiH - Felis
 static ConVar g_ScriptConVarDummy( "", "0" );
+
+// @NMRiH - Felis: For debugging
+#ifndef CLIENT_DLL
+//-----------------------------------------------------------------------------
+CON_COMMAND_F( script_dump_commands, "", FCVAR_CHEAT )
+{
+	if ( !UTIL_IsCommandIssuedByServerAdmin() )
+		return;
+
+	FOR_EACH_MAP( g_ScriptConCommands, i )
+	{
+		const CScriptConCommand *pCommand = g_ScriptConCommands[i];
+		if ( !pCommand )
+			continue;
+
+		Msg( "ConCommand: \"%s\" [admin only: %s] [hash: %x]\n", 
+			pCommand->GetName(),
+			pCommand->IsAdminOnly() ? "yes" : "no",
+			g_ScriptConCommands.Key( i ) );
+	}
+
+	FOR_EACH_MAP( g_ScriptConVars, i )
+	{
+		const CScriptConVar *pConVar = g_ScriptConVars[i];
+		if ( !pConVar )
+			continue;
+
+		Msg( "ConVar: \"%s\" [hash: %x]\n", pConVar->GetName(), g_ScriptConVars.Key( i ) );
+	}
+
+	Msg( "%d ConCommand(s), %d ConVar(s) registered.\n", g_ScriptConCommands.Count(), g_ScriptConVars.Count() );
+}
+#endif
 
 class CScriptConvarAccessor : public CAutoGameSystem
 {
@@ -4927,20 +4963,32 @@ class CScriptConvarAccessor : public CAutoGameSystem
 		RULESET,		// Use ruleset sandbox
 	};
 
-	// @NMRiH - Felis: Wrapper that tries to find script cvar first and FindVar last
+	// @NMRiH - Felis: Wrapper that tries to find script cvar first, then ruleset cvar, and finally FindVar
 	class ScriptConVarRef
 	{
 	public:
 		FORCEINLINE ScriptConVarRef( const char *pszName )
 		{
-			const int idx = g_ScriptConVars.Find( pszName );
+			m_bRulesetConVar = false;
+
+			const ValidatedCvarDict_t &validatedCvarDict = GetRulesetManager()->GetValidatedCvars();
+
+			int idx = g_ScriptConVars.Find( Hash( pszName ) );
 			m_bScriptConVar = idx != g_ScriptConVars.InvalidIndex();
 			if ( m_bScriptConVar )
 			{
+				// Registered by script
 				m_pConVar = g_ScriptConVars[idx];
+			}
+			else if ( ( idx = validatedCvarDict.Find( pszName ) ) != validatedCvarDict.InvalidIndex() )
+			{
+				// Validated by ruleset system
+				m_pConVar = static_cast<ConVar *>( validatedCvarDict.Element( idx ) );
+				m_bRulesetConVar = true;
 			}
 			else
 			{
+				// Fallback to complex lookup
 				m_pConVar = g_pCVar->FindVar( pszName );
 			}
 
@@ -4961,6 +5009,7 @@ class CScriptConvarAccessor : public CAutoGameSystem
 		FORCEINLINE bool IsFlagSet( const int flags ) const { return m_pConVar->IsFlagSet( flags ) != 0; }
 		FORCEINLINE bool IsValid() const { return m_pConVar != &g_ScriptConVarDummy; }
 		FORCEINLINE bool IsScriptConVar() const { return m_bScriptConVar; }
+		FORCEINLINE bool IsRulesetConVar() const { return m_bRulesetConVar; }
 
 		template <typename T>
 		FORCEINLINE void SetValue( T value ) { m_pConVar->SetValue( value ); }
@@ -4968,56 +5017,55 @@ class CScriptConvarAccessor : public CAutoGameSystem
 	private:
 		ConVar *m_pConVar;
 		bool m_bScriptConVar;
+		bool m_bRulesetConVar;
 	};
 
-	// @NMRiH - Felis: Unused
-	/*
 public:
+	// @NMRiH - Felis: Lifted from utlcommon.h
+	// FNV-1A caseless string hash
+	static unsigned int Hash( const char *psz )
+	{
+		uint32 h = 2166136261u;
+		for ( ; *psz; ++psz )
+		{
+			uint32 c = (unsigned char)*psz;
+
+			// Brutally fast branchless ASCII tolower():
+			c += ( ( ( ( 'A' - 1 ) - c ) & ( c - ( 'Z' + 1 ) ) ) >> 26 ) & 32;
+			h = ( h ^ c ) * 16777619;
+		}
+
+		return ( h ^ h << 17 ) + ( h >> 21 );
+	}
+	/*
 	static inline unsigned int Hash( const char*sz ){ return HashStringCaseless(sz); }
 	*/
 
 public:
 	inline void AddOverridable( const char *name )
 	{
-		// @NMRiH - Felis
-		g_ConCommandsOverridable.Insert( name, true );
-		/*
 		g_ConCommandsOverridable.InsertOrReplace( Hash(name), true );
-		*/
 	}
 
-	// @NMRiH - Felis
-	inline bool IsOverridable( const char *name )
-	{
-		const int idx = g_ConCommandsOverridable.Find( name );
-		return ( idx != g_ConCommandsOverridable.InvalidIndex() );
-	}
-	/*
 	inline bool IsOverridable( unsigned int hash )
 	{
 		int idx = g_ConCommandsOverridable.Find( hash );
 		return ( idx != g_ConCommandsOverridable.InvalidIndex() );
 	}
-	*/
 
+	// @NMRiH - Felis: Replaced by ruleset system
+	/*
 	inline void AddBlockedConVar( const char *name )
 	{
-		// @NMRiH - Felis
-		g_ConVarsBlocked.Insert( name, true );
-		/*
 		g_ConVarsBlocked.InsertOrReplace( Hash(name), true );
-		*/
 	}
 
 	inline bool IsBlockedConvar( const char *name )
 	{
-		// @NMRiH - Felis
-		const int idx = g_ConVarsBlocked.Find( name );
-		/*
 		int idx = g_ConVarsBlocked.Find( Hash(name) );
-		*/
 		return ( idx != g_ConVarsBlocked.InvalidIndex() );
 	}
+	*/
 
 public:
 	void RegisterCommand( const char *name, HSCRIPT fn, const char *helpString, int flags );
@@ -5169,33 +5217,23 @@ public:
 		*/
 	}
 
-	// @NMRiH - Felis: Pre-conditions for setting a value
-	ConVarSetterAccess_t GetSetterAccess( const ScriptConVarRef &cvarRef )
+	// @NMRiH - Felis: Pre-conditions for setting a value to dodge privilege escalation
+	// For now, only allow cvars that are registered by scripts, or validated by rulesets
+	static ConVarSetterAccess_t GetSetterAccess( const ScriptConVarRef &cvarRef )
 	{
-		if ( !cvarRef.IsValid() )
-			return REJECTED;
-
-		// Setting cvars is another privilege escalation
-		// Only allow cvars that are registered by the scripts for now
-		// Later we can add some -unsafescript switch for daring admins
-		if ( !cvarRef.IsScriptConVar() )
+		if ( cvarRef.IsScriptConVar() )
 		{
-			const char *pszName = cvarRef.GetName();
-			if ( IsBlockedConvar( pszName ) )
-				return REJECTED;
-
-			// Make an exception if this is a ruleset validated cvar
-			if ( GetRulesetManager()->IsCvarValidated( pszName ) )
-			{
-				// Sandboxed
-				return RULESET;
-			}
-
-			Warning( "VScript: Setting cvars not registered by scripts isn't allowed. (%s)\n", pszName );
-			return REJECTED;
+			return ALLOWED;
 		}
 
-		return ALLOWED;
+		if ( cvarRef.IsRulesetConVar() )
+		{
+			// Sandboxed
+			return RULESET;
+		}
+
+		Warning( "VScript: Setting cvars not registered by scripts isn't allowed. (%s)\n", cvarRef.GetName() );
+		return REJECTED;
 	}
 
 	// @NMRiH - Felis: Replacing this due to difficulty deducing incoming template
@@ -5212,7 +5250,7 @@ public:
 
 		if ( IsBlockedConvar( pszConVar ) )
 			return;
-		
+
 		cvar.SetValue( value );
 	}
 	*/
@@ -5225,21 +5263,12 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 	// @NMRiH - Felis: Use persistent handle
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
-	// @NMRiH - Felis
-	const int idx = g_ScriptConCommands.Find( name );
-	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
-	*/
 	if ( idx == g_ScriptConCommands.InvalidIndex() )
 	{
 		ConCommandBase *pBase = g_pCVar->FindCommandBase(name);
-
-		// @NMRiH - Felis
-		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( name ) ) )
-		/*
 		if ( pBase && ( !pBase->IsCommand() || !IsOverridable(hash) ) )
-		*/
 		{
 			DevWarning( 1, "CScriptConvarAccessor::RegisterCommand unable to register blocked ConCommand: %s\n", name );
 			return;
@@ -5249,12 +5278,7 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 			return;
 
 		CScriptConCommand *p = new CScriptConCommand( name, fn, helpString, flags, static_cast< ConCommand* >(pBase) );
-
-		// @NMRiH - Felis
-		g_ScriptConCommands.Insert( name, p );
-		/*
 		g_ScriptConCommands.Insert( hash, p );
-		*/
 	}
 	else
 	{
@@ -5274,11 +5298,12 @@ void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, 
 {
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
-	const int idx = g_ScriptConCommands.Find( name );
+	unsigned int hash = Hash( name );
+	int idx = g_ScriptConCommands.Find( hash );
 	if ( idx == g_ScriptConCommands.InvalidIndex() )
 	{
 		ConCommandBase *pBase = g_pCVar->FindCommandBase( name );
-		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( name ) ) )
+		if ( pBase && ( !pBase->IsCommand() || !IsOverridable( hash ) ) )
 		{
 			DevWarning( 1, "CScriptConvarAccessor::RegisterAdminCommand unable to register blocked ConCommand: %s\n", name );
 			return;
@@ -5289,7 +5314,7 @@ void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, 
 
 		CScriptConCommand *p = new CScriptConCommand( name, fn, helpString, flags, static_cast<ConCommand *>( pBase ) );
 		p->SetAdminOnly( true );
-		g_ScriptConCommands.Insert( name, p );
+		g_ScriptConCommands.Insert( hash, p );
 	}
 	else
 	{
@@ -5304,12 +5329,8 @@ void CScriptConvarAccessor::SetCompletionCallback( const char *name, HSCRIPT fn 
 	// @NMRiH - Felis: Use persistent handle
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
-	// @NMRiH - Felis
-	const int idx = g_ScriptConCommands.Find( name );
-	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
-	*/
 	if ( idx != g_ScriptConCommands.InvalidIndex() )
 	{
 		g_ScriptConCommands[idx]->SetCompletionCallback( fn );
@@ -5318,12 +5339,8 @@ void CScriptConvarAccessor::SetCompletionCallback( const char *name, HSCRIPT fn 
 
 void CScriptConvarAccessor::UnregisterCommand( const char *name )
 {
-	// @NMRiH - Felis
-	const int idx = g_ScriptConCommands.Find( name );
-	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
-	*/
 	if ( idx != g_ScriptConCommands.InvalidIndex() )
 	{
 		g_ScriptConCommands[idx]->Unregister();
@@ -5333,13 +5350,8 @@ void CScriptConvarAccessor::UnregisterCommand( const char *name )
 void CScriptConvarAccessor::RegisterConvar( const char *name, const char *pDefaultValue, const char *helpString, int flags )
 {
 	Assert( g_pCVar );
-
-	// @NMRiH - Felis
-	const int idx = g_ScriptConVars.Find( name );
-	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConVars.Find(hash);
-	*/
 	if ( idx == g_ScriptConVars.InvalidIndex() )
 	{
 		if ( g_pCVar->FindCommandBase(name) )
@@ -5349,12 +5361,7 @@ void CScriptConvarAccessor::RegisterConvar( const char *name, const char *pDefau
 		}
 
 		CScriptConVar *p = new CScriptConVar( name, pDefaultValue, helpString, flags );
-
-		// @NMRiH - Felis
-		g_ScriptConVars.Insert( name, p );
-		/*
 		g_ScriptConVars.Insert( hash, p );
-		*/
 	}
 	else
 	{
@@ -5367,12 +5374,8 @@ void CScriptConvarAccessor::SetChangeCallback( const char *name, HSCRIPT fn )
 	// @NMRiH - Felis: Use persistent handle
 	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
 
-	// @NMRiH - Felis
-	const int idx = g_ScriptConVars.Find( name );
-	/*
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConVars.Find(hash);
-	*/
 	if ( idx != g_ScriptConVars.InvalidIndex() )
 	{
 		g_ScriptConVars[idx]->SetChangeCallback( fn );
@@ -5383,13 +5386,8 @@ void ScriptConVarCallback( IConVar *var, const char* pszOldValue, float flOldVal
 {
 	ConVar *cvar = (ConVar*)var;
 	const char *name = cvar->GetName();
-
-	// @NMRiH - Felis
-	const int idx = g_ScriptConVars.Find( name );
-	/*
 	unsigned int hash = CScriptConvarAccessor::Hash( name );
 	int idx = g_ScriptConVars.Find(hash);
-	*/
 	if ( idx != g_ScriptConVars.InvalidIndex() )
 	{
 		Assert( g_ScriptConVars[idx]->m_hCallback );
@@ -5479,10 +5477,13 @@ bool CScriptConvarAccessor::Init()
 	AddOverridable( "say" );
 	AddOverridable( "say_team" );
 
+	// @NMRiH - Felis: Replaced by ruleset system
+	/*
 	AddBlockedConVar( "con_enable" );
 	AddBlockedConVar( "cl_allowdownload" );
 	AddBlockedConVar( "cl_allowupload" );
 	AddBlockedConVar( "cl_downloadfilter" );
+	*/
 
 	return true;
 }
@@ -6358,6 +6359,26 @@ public:
 		TheNavMesh->UnregisterAvoidanceObstacle( pObstacle );
 	}
 
+	void GetObstructingEntities( const HSCRIPT hTable )
+	{
+		if ( !hTable || !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+		{
+			return;
+		}
+
+		const CUtlVector<INavAvoidanceObstacle *> &vecObstructions = TheNavMesh->GetObstructions();
+		for ( int i = 0; i < vecObstructions.Count(); ++i )
+		{
+			CBaseEntity *pObstructingEntity = vecObstructions[i]->GetObstructingEntity();
+			if ( !pObstructingEntity )
+				continue;
+
+			char szKeyName[64];
+			V_sprintf_safe( szKeyName, "obstruction%d", i );
+			g_pScriptVM->SetValue( hTable, szKeyName, ToHScript( pObstructingEntity ) );
+		}
+	}
+
 	//-----------------------------------------------------------------------------
 	// Area collection methods
 
@@ -6397,19 +6418,89 @@ public:
 		}
 	}
 
+	void GetAreasWithAttributes( const int bits, const HSCRIPT hTable )
+	{
+		for ( int i = 0; i < TheNavAreas.Count(); ++i )
+		{
+			const CNavArea *pArea = TheNavAreas[i];
+			if ( !pArea || !pArea->HasAttributes( bits ) )
+			{
+				continue;
+			}
+
+			char szKeyName[64];
+			V_sprintf_safe( szKeyName, "area%d", i );
+			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( pArea ) );
+		}
+	}
+
+	void GetNavAreasOverlappingEntityExtent( const HSCRIPT hEntity, const HSCRIPT hTable )
+	{
+		if ( !hTable || !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+		{
+			return;
+		}
+
+		CBaseEntity *pEntity = ToEnt( hEntity );
+		if ( !pEntity )
+		{
+			return;
+		}
+
+		NavAreaCollector collector;
+		Extent extent;
+		pEntity->CollisionProp()->WorldSpaceAABB( &extent.lo, &extent.hi );
+
+		// Adapted from updated SDK repository for cross compatibility
+		if ( FClassnameIs( pEntity, "prop_physics" ) || FClassnameIs( pEntity, "trigger_hurt" ) )
+		{
+			extent.lo.z -= HumanHeight;
+		}
+
+		TheNavMesh->ForAllAreasOverlappingExtent( collector, extent );
+
+		for ( int i = 0; i < collector.m_area.Count(); ++i )
+		{
+			const CNavArea *pArea = collector.m_area[i];
+			if ( pArea )
+			{
+				char szKeyName[64];
+				V_sprintf_safe( szKeyName, "area%d", i );
+				g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( pArea ) );
+			}
+		}
+	}
+
+	HSCRIPT FindNavAreaAlongRay( const Vector &vecStart, const Vector &vecEnd, const HSCRIPT hIgnoreArea ) const
+	{
+		CNavArea *pIgnoreArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hIgnoreArea ) );
+
+		CNavArea *pArea = NULL;
+		CNavLadder *pLadder = NULL; // Unused, but can't pass nullptr to this function as it's dereferenced
+		if ( TheNavMesh->FindNavAreaOrLadderAlongRay( vecStart, vecEnd, &pArea, &pLadder, pIgnoreArea ) )
+		{
+			if ( pArea )
+			{
+				return g_ScriptNavAreaCollector.GetScriptInstance( pArea );
+			}
+		}
+
+		return NULL;
+	}
+
 	//-----------------------------------------------------------------------------
 	// Path finding methods
 
 	bool ScriptNavAreaBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector &vecGoalPos,
-		const float flMaxPathLength = 0.0f, const int teamID = TEAM_ANY, const bool bIgnoreNavBlockers = false )
+		const float flMaxPathLength, const int teamID, const bool bIgnoreNavBlockers )
 	{
 		ShortestPathCost costFunc;
-		return InternalScriptNavAreaBuildPath( hStartArea, hGoalArea, vecGoalPos,
+		return InternalScriptNavAreaBuildPath( hStartArea, hGoalArea, &vecGoalPos,
 			costFunc,
-			ScriptNavAreaPathParams_t( NULL, flMaxPathLength, teamID, bIgnoreNavBlockers ) );
+			ScriptNavAreaPathParams_t( flMaxPathLength, teamID, bIgnoreNavBlockers ) );
 	}
 
-	bool GetNavAreasFromBuildPath( const HSCRIPT hStartArea, const HSCRIPT hEndArea, const Vector &vecGoalPos,
+	bool GetNavAreasFromBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector &vecGoalPos,
 		const float flMaxPathLength, const int teamID, const bool bIgnoreNavBlockers, const HSCRIPT hTable )
 	{
 		if ( !hTable || !g_pScriptVM->EnsureObjectIsTable( hTable ) )
@@ -6417,17 +6508,31 @@ public:
 			return false;
 		}
 
+		// Adapted from updated SDK repository for cross compatibility
+		const bool bInvalidPos = vecGoalPos == vec3_origin;
+		if ( !hStartArea || ( !hGoalArea && bInvalidPos ) )
+		{
+			return false;
+		}
+
 		CNavArea *pGoalArea = NULL;
+		CNavArea *pClosestArea = NULL;
 
 		ShortestPathCost costFunc;
-		const bool bSuccess = InternalScriptNavAreaBuildPath( hStartArea, hEndArea, vecGoalPos,
+		const bool bSuccess = InternalScriptNavAreaBuildPath( hStartArea, hGoalArea, 
+			bInvalidPos ? NULL : &vecGoalPos,
 			costFunc,
-			ScriptNavAreaPathParams_t( NULL, flMaxPathLength, teamID, bIgnoreNavBlockers ),
-			NULL, &pGoalArea );
+			ScriptNavAreaPathParams_t( flMaxPathLength, teamID, bIgnoreNavBlockers ),
+			&pClosestArea, NULL /* ppResolvedStartArea */, &pGoalArea );
 
 		if ( !bSuccess )
 		{
 			return false;
+		}
+
+		if ( !pGoalArea )
+		{
+			pGoalArea = pClosestArea;
 		}
 
 		int areaIndex = 0;
@@ -6435,7 +6540,7 @@ public:
 		{
 			char szKeyName[64];
 			V_sprintf_safe( szKeyName, "area%d", areaIndex );
-			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( pArea->GetParent() ) );
+			g_pScriptVM->SetValue( hTable, szKeyName, g_ScriptNavAreaCollector.GetScriptInstance( pArea ) );
 
 			++areaIndex;
 		}
@@ -6443,24 +6548,25 @@ public:
 		return bSuccess;
 	}
 
+	float ScriptNavAreaTravelDistance( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const float flMaxPathLength )
+	{
+		CNavArea *pStartArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hStartArea ) );
+		CNavArea *pGoalArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hGoalArea ) );
+
+		ShortestPathCost shortestPath;
+		return NavAreaTravelDistance( pStartArea, pGoalArea, shortestPath, flMaxPathLength );
+	}
+
 private:
 	template< typename CostFunctor >
-	bool InternalScriptNavAreaBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector &vecGoalPos,
+	bool InternalScriptNavAreaBuildPath( const HSCRIPT hStartArea, const HSCRIPT hGoalArea, const Vector *pGoalPos,
 		CostFunctor &costFunc,
 		const ScriptNavAreaPathParams_t &params,
+		CNavArea **ppClosestArea = NULL,
 		CNavArea **ppResolvedStartArea = NULL, CNavArea **ppResolvedGoalArea = NULL )
 	{
 		CNavArea *pStartArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hStartArea ) );
-		if ( !pStartArea )
-		{
-			return false;
-		}
-
 		CNavArea *pGoalArea = CScriptNavAreaCollector::GetArea( HScriptToClass<CScriptNavArea>( hGoalArea ) );
-		if ( !pGoalArea )
-		{
-			return false;
-		}
 
 		if ( ppResolvedStartArea )
 			*ppResolvedStartArea = pStartArea;
@@ -6468,9 +6574,10 @@ private:
 		if ( ppResolvedGoalArea )
 			*ppResolvedGoalArea = pGoalArea;
 
-		return NavAreaBuildPath( pStartArea, pGoalArea, &vecGoalPos,
+		return NavAreaBuildPath( pStartArea, pGoalArea, pGoalPos,
 			costFunc,
-			params.m_ppClosestArea, params.m_flMaxPathLength, params.m_iTeamID, params.m_bIgnoreNavBlockers );
+			ppClosestArea,
+			params.m_flMaxPathLength, params.m_iTeamID, params.m_bIgnoreNavBlockers );
 	}
 
 } g_ScriptNavMesh;
@@ -6482,10 +6589,15 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptNavMesh, "CNavMesh", SCRIPT_SINGLETON "An in
 	DEFINE_SCRIPTFUNC( GetNearestNavArea, "Given a position in the world, return the nav area that is closest, and at the same height, or beneath it. Used to find initial area if we start off of the mesh." )
 	DEFINE_SCRIPTFUNC( RegisterAvoidanceObstacle, "" )
 	DEFINE_SCRIPTFUNC( UnregisterAvoidanceObstacle, "" )
+	DEFINE_SCRIPTFUNC( GetObstructingEntities, "Fills table with all obstructing entities." )
 	DEFINE_SCRIPTFUNC( GetAllAreas, "Fills table with all areas in the nav mesh." )
 	DEFINE_SCRIPTFUNC( GetNavAreasInRadius, "Fills table with areas within radius of given position." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptNavAreaBuildPath, "NavAreaBuildPath", "Returns true if a path exists. If 'endArea' is null, will compute a path as close as possible to 'goalPos'." )
-	DEFINE_SCRIPTFUNC( GetNavAreasFromBuildPath, "Fills table with areas from a path. Returns whether a path was found. If 'endArea' is null, will compute a path as close as possible to 'goalPos'." )
+	DEFINE_SCRIPTFUNC( GetAreasWithAttributes, "Fills table with all areas that have specified NAV_MESH_* attributes." )
+	DEFINE_SCRIPTFUNC( GetNavAreasOverlappingEntityExtent, "Fills table with areas overlapping entity's extent." )
+	DEFINE_SCRIPTFUNC( GetNavAreasFromBuildPath, "Fills table with areas from a path. Returns whether a path was found. If 'goalArea' is null, will compute a path as close as possible to 'goalPos'." )
+	DEFINE_SCRIPTFUNC( FindNavAreaAlongRay, "Returns nav area from ray." )
+	DEFINE_SCRIPTFUNC_NAMED( ScriptNavAreaBuildPath, "NavAreaBuildPath", "Returns true if a path exists. If 'goalArea' is null, will compute a path as close as possible to 'goalPos'." )
+	DEFINE_SCRIPTFUNC_NAMED( ScriptNavAreaTravelDistance, "NavAreaTravelDistance", "Computes distance between two areas. Returns -1 if can't reach 'goalArea' from 'startArea'." )
 END_SCRIPTDESC();
 
 #endif // @NMRiH - Felis: End nav mesh stuff

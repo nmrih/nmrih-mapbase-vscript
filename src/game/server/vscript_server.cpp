@@ -568,7 +568,7 @@ bool Script_FMOD_PrecacheSound( const char *pszSound )
 	// Precache flags aren't really important here, let's not expose those for tinkering
 	// The function below converts soundchars to corresponding flags, e.g. streaming
 	const int index = FMOD_PrecacheSound( pszSound, 0, NULL );
-	return index != INVALID_FMOD_SOUND_INDEX;
+	return index != FMOD_INVALID_SOUND_INDEX;
 }
 
 bool VScriptServerInit()
