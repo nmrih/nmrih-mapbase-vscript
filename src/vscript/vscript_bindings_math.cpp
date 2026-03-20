@@ -443,8 +443,13 @@ inline float ScriptExponentialDecay( float decayTo, float decayTime, float dt )
 
 void RegisterMathBaseBindings( IScriptVM *pVM )
 {
+	// @NMRiH - Felis: These may yield different results on gcc, use constants
+	ScriptRegisterConstantNamed( pVM, 57.295780f, "RAD2DEG", "" );
+	ScriptRegisterConstantNamed( pVM, 0.017453f, "DEG2RAD", "" );
+	/*
 	ScriptRegisterConstantNamed( pVM, ((float)(180.f / M_PI_F)), "RAD2DEG", "" );
 	ScriptRegisterConstantNamed( pVM, ((float)(M_PI_F / 180.f)), "DEG2RAD", "" );
+	*/
 
 	ScriptRegisterFunction( pVM, RandomFloat, "Generate a random floating point number within a range, inclusive." );
 	ScriptRegisterFunction( pVM, RandomInt, "Generate a random integer within a range, inclusive." );
