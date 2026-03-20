@@ -178,9 +178,17 @@ function __recurse_sort_table(depth, table, list)
 			case "table":
 			case "array":
 				local sublist = [];
-				__recurse_sort_table(depth + 1, value, sublist);
-				foreach (_, sub in sublist)
-					t[++subidx] <- sub;
+				if (value != table)
+				{
+					__recurse_sort_table(depth + 1, value, sublist);
+					foreach (_, sub in sublist)
+						t[++subidx] <- sub;
+				}
+				else
+				{
+					t.__type <- "this";
+					t.value <- value;
+				}
 				break;
 			case "string":
 			default:
@@ -230,6 +238,11 @@ function __recurse_print_sortlist(depth, list)
 				print(" = \"");
 				print(sub.value);
 				print("\"");
+				break;
+			case "this":
+				print("(THIS)");
+				print(" = ");
+				print(sub.value);
 				break;
 			default:
 				print(" = ");
