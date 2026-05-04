@@ -23,18 +23,11 @@ inline matrix3x4_t *ToMatrix3x4( HSCRIPT hMat ) { return HScriptToClass<matrix3x
 
 static void ScriptFreeMatrixInstance( HSCRIPT hMat )
 {
-	// @NMRiH - Felis: Dupe transient param
-	hMat = hMat ? g_pScriptVM->DuplicateObject( hMat ) : NULL;
-
 	matrix3x4_t *smatrix = HScriptToClass<matrix3x4_t>( hMat );
 	if (smatrix)
 	{
 		g_pScriptVM->RemoveInstance( hMat );
-
-		// @NMRiH - Felis: Double deletion
-		/*
 		delete smatrix;
-		*/
 	}
 }
 
@@ -47,29 +40,17 @@ class CScriptQuaternionInstanceHelper : public IScriptInstanceHelper
 
 	bool Get( void *p, const char *pszKey, ScriptVariant_t &variant );
 	bool Set( void *p, const char *pszKey, ScriptVariant_t &variant );
-
-	ScriptVariant_t *Add( void *p, ScriptVariant_t &variant );
-	//ScriptVariant_t *Subtract( void *p, ScriptVariant_t &variant );
-	//ScriptVariant_t *Multiply( void *p, ScriptVariant_t &variant );
-	//ScriptVariant_t *Divide( void *p, ScriptVariant_t &variant );
 };
 
 inline Quaternion *ToQuaternion( HSCRIPT hQuat ) { return HScriptToClass<Quaternion>( hQuat ); }
 
 static void ScriptFreeQuaternionInstance( HSCRIPT hQuat )
 {
-	// @NMRiH - Felis: Dupe transient param
-	hQuat = hQuat ? g_pScriptVM->DuplicateObject( hQuat ) : NULL;
-
 	Quaternion *squat = HScriptToClass<Quaternion>( hQuat );
 	if (squat)
 	{
 		g_pScriptVM->RemoveInstance( hQuat );
-
-		// @NMRiH - Felis: Double deletion
-		/*
 		delete squat;
-		*/
 	}
 }
 

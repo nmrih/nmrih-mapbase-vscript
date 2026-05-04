@@ -1,4 +1,4 @@
-//========== Copyright Â© 2008, Valve Corporation, All rights reserved. ========
+//========== Copyright © 2008, Valve Corporation, All rights reserved. ========
 //
 // Purpose:
 //
@@ -61,7 +61,7 @@ FUNC_GENERATE_ALL( DEFINE_MEMBER_FUNC_TYPE_DEDUCER );
 
 FUNC_GENERATE_ALL( DEFINE_CONST_MEMBER_FUNC_TYPE_DEDUCER );
 
-#define ScriptInitMemberFuncDescriptor_( pDesc, class, func, scriptName )	if ( 0 ) {} else { (pDesc)->m_pszScriptName = scriptName; (pDesc)->m_pszFunction = #func; ScriptDeduceFunctionSignature( pDesc, (class *)(0), &class::func ); }
+#define ScriptInitMemberFuncDescriptor_( pDesc, class, func, scriptName )	if ( 0 ) {} else { (pDesc)->m_pszScriptName = scriptName; (pDesc)->m_pszFunction = #func; ScriptDeduceFunctionSignature( pDesc, (class *)(0), &class::func ); (pDesc)->m_pScriptClassDesc = GetScriptDesc<class>(nullptr); }
 
 #define ScriptInitFuncDescriptorNamed( pDesc, func, scriptName )						if ( 0 ) {} else { (pDesc)->m_pszScriptName = scriptName; (pDesc)->m_pszFunction = #func; ScriptDeduceFunctionSignature( pDesc, &func ); }
 #define ScriptInitFuncDescriptor( pDesc, func )											ScriptInitFuncDescriptorNamed( pDesc, func, #func )
@@ -361,8 +361,8 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 	class CNonMemberScriptBinding##N \
 	{ \
 	public: \
- 		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
- 		{ \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
 			Assert( nArguments == N ); \
 			Assert( pReturn ); \
 			Assert( !pContext ); \
@@ -372,17 +372,15 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 				return false; \
 			} \
 			*pReturn = (ScriptConvertFreeFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ); \
-			if ( pReturn->m_type == FIELD_VECTOR )                                                                                                                          \
-				pReturn->m_pVector = new Vector( *pReturn->m_pVector ); \
- 			return true; \
- 		} \
+			return true; \
+		} \
 	}; \
 	\
 	template <typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
 	class CNonMemberScriptBinding##N<FUNC_TYPE, void FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
 	{ \
 	public: \
-		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
 		{ \
 			Assert( nArguments == N ); \
 			Assert( !pReturn ); \
@@ -397,12 +395,52 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 		} \
 	}; \
 	\
+	template <typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CNonMemberScriptBinding##N<FUNC_TYPE, Vector FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
+	{ \
+	public: \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( !pContext ); \
+			\
+			if ( nArguments != N || !pReturn || pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_vec ) Vector( (*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_vec; \
+			return true; \
+		} \
+	}; \
+	\
+	template <typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CNonMemberScriptBinding##N<FUNC_TYPE, QAngle FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
+	{ \
+	public: \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( !pContext ); \
+			\
+			if ( nArguments != N || !pReturn || pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_ang ) QAngle( (*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_ang; \
+			return true; \
+		} \
+	}; \
+	\
 	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE, typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
 	class CMemberScriptBinding##N \
 	{ \
 	public: \
- 		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
- 		{ \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
 			Assert( nArguments == N ); \
 			Assert( pReturn ); \
 			Assert( pContext ); \
@@ -412,17 +450,15 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 				return false; \
 			} \
 			*pReturn = (((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ); \
-			if ( pReturn->m_type == FIELD_VECTOR )                                                                                                                          \
-				pReturn->m_pVector = new Vector( *pReturn->m_pVector ); \
- 			return true; \
- 		} \
+			return true; \
+		} \
 	}; \
 	\
 	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
 	class CMemberScriptBinding##N<OBJECT_TYPE_PTR, FUNC_TYPE, void FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
 	{ \
 	public: \
-		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
 		{ \
 			Assert( nArguments == N ); \
 			Assert( !pReturn ); \
@@ -437,25 +473,65 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 		} \
 	}; \
 	\
-	template <typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
-	inline ScriptBindingFunc_t ScriptCreateBinding(FUNCTION_RETTYPE (*pfnProxied)( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N ) ) \
+	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CMemberScriptBinding##N<OBJECT_TYPE_PTR, FUNC_TYPE, Vector FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
 	{ \
-		typedef FUNCTION_RETTYPE (*Func_t)(FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N); \
-		return &CNonMemberScriptBinding##N<Func_t, FUNCTION_RETTYPE FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N>::Call; \
-	} \
+	public: \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( pContext ); \
+			\
+			if ( nArguments != N || !pReturn || !pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_vec ) Vector( (((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_vec; \
+			return true; \
+		} \
+	}; \
 	\
-	template <typename OBJECT_TYPE_PTR, typename FUNCTION_CLASS, typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
-		inline ScriptBindingFunc_t ScriptCreateBinding(OBJECT_TYPE_PTR pObject, FUNCTION_RETTYPE (FUNCTION_CLASS::*pfnProxied)( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N ) ) \
+	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CMemberScriptBinding##N<OBJECT_TYPE_PTR, FUNC_TYPE, QAngle FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
 	{ \
-		typedef FUNCTION_RETTYPE (FUNCTION_CLASS::*Func_t)(FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N); \
-		return &CMemberScriptBinding##N<OBJECT_TYPE_PTR, Func_t, FUNCTION_RETTYPE FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N>::Call; \
-	} \
+	public: \
+		static bool Call( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( pContext ); \
+			\
+			if ( nArguments != N || !pReturn || !pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_ang ) QAngle( (((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_ang; \
+			return true; \
+		} \
+	}; \
 	\
-	template <typename OBJECT_TYPE_PTR, typename FUNCTION_CLASS, typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
-		inline ScriptBindingFunc_t ScriptCreateBinding(OBJECT_TYPE_PTR pObject, FUNCTION_RETTYPE (FUNCTION_CLASS::*pfnProxied)( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N ) const ) \
-	{ \
-		typedef FUNCTION_RETTYPE (FUNCTION_CLASS::*Func_t)(FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N); \
-		return &CMemberScriptBinding##N<OBJECT_TYPE_PTR, Func_t, FUNCTION_RETTYPE FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N>::Call; \
+	template <typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N>                                                                                                                                                   \
+	inline ScriptBindingFunc_t ScriptCreateBinding( FUNCTION_RETTYPE ( *pfnProxied )( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N ) )                                                                                             \
+	{                                                                                                                                                                                                                    \
+		typedef FUNCTION_RETTYPE ( *Func_t )( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N );                                                                                                                                      \
+		return &CNonMemberScriptBinding##N<Func_t, FUNCTION_RETTYPE FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N>::Call;                                                                                                  \
+	}                                                                                                                                                                                                                    \
+                                                                                                                                                                                                                         \
+	template <typename OBJECT_TYPE_PTR, typename FUNCTION_CLASS, typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N>                                                                                                \
+	inline ScriptBindingFunc_t ScriptCreateBinding( OBJECT_TYPE_PTR pObject, FUNCTION_RETTYPE ( FUNCTION_CLASS::*pfnProxied )( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N ) )                                                    \
+	{                                                                                                                                                                                                                    \
+		typedef FUNCTION_RETTYPE ( FUNCTION_CLASS::*Func_t )( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N );                                                                                                                      \
+		return &CMemberScriptBinding##N<OBJECT_TYPE_PTR, Func_t, FUNCTION_RETTYPE FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N>::Call;                                                                                    \
+	}                                                                                                                                                                                                                    \
+                                                                                                                                                                                                                         \
+	template <typename OBJECT_TYPE_PTR, typename FUNCTION_CLASS, typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N>                                                                                                \
+	inline ScriptBindingFunc_t ScriptCreateBinding( OBJECT_TYPE_PTR pObject, FUNCTION_RETTYPE ( FUNCTION_CLASS::*pfnProxied )( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N ) const )                                              \
+	{                                                                                                                                                                                                                    \
+		typedef FUNCTION_RETTYPE ( FUNCTION_CLASS::*Func_t )( FUNC_BASE_TEMPLATE_FUNC_PARAMS_##N );                                                                                                                      \
+		return &CMemberScriptBinding##N<OBJECT_TYPE_PTR, Func_t, FUNCTION_RETTYPE FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N>::Call;                                                                                    \
 	}
 /*
 #define DEFINE_SCRIPT_BINDINGS(N) \
@@ -463,8 +539,8 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 	class CNonMemberScriptBinding##N \
 	{ \
 	public: \
- 		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
- 		{ \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
 			Assert( nArguments == N ); \
 			Assert( pReturn ); \
 			Assert( !pContext ); \
@@ -474,17 +550,15 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 				return false; \
 			} \
 			*pReturn = ((FUNC_TYPE)pFunction)( SCRIPT_BINDING_ARGS_##N ); \
-			if ( pReturn->m_type == FIELD_VECTOR ) \
-				pReturn->m_pVector = new Vector(*pReturn->m_pVector); \
- 			return true; \
- 		} \
+			return true; \
+		} \
 	}; \
 	\
 	template <typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
 	class CNonMemberScriptBinding##N<FUNC_TYPE, void FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
 	{ \
 	public: \
-		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
 		{ \
 			Assert( nArguments == N ); \
 			Assert( !pReturn ); \
@@ -499,12 +573,52 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 		} \
 	}; \
 	\
+	template <typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CNonMemberScriptBinding##N<FUNC_TYPE, Vector FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
+	{ \
+	public: \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( !pContext ); \
+			\
+			if ( nArguments != N || !pReturn || pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_vec ) Vector( ((FUNC_TYPE)pFunction)( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_vec; \
+			return true; \
+		} \
+	}; \
+	\
+	template <typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CNonMemberScriptBinding##N<FUNC_TYPE, QAngle FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
+	{ \
+	public: \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( !pContext ); \
+			\
+			if ( nArguments != N || !pReturn || pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_ang ) QAngle( ((FUNC_TYPE)pFunction)( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_ang; \
+			return true; \
+		} \
+	}; \
+	\
 	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE, typename FUNCTION_RETTYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
 	class CMemberScriptBinding##N \
 	{ \
 	public: \
- 		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
- 		{ \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
 			Assert( nArguments == N ); \
 			Assert( pReturn ); \
 			Assert( pContext ); \
@@ -514,17 +628,15 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 				return false; \
 			} \
 			*pReturn = (((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ); \
-			if ( pReturn->m_type == FIELD_VECTOR ) \
-				pReturn->m_pVector = new Vector(*pReturn->m_pVector); \
- 			return true; \
- 		} \
+			return true; \
+		} \
 	}; \
 	\
 	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
 	class CMemberScriptBinding##N<OBJECT_TYPE_PTR, FUNC_TYPE, void FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
 	{ \
 	public: \
-		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn ) \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
 		{ \
 			Assert( nArguments == N ); \
 			Assert( !pReturn ); \
@@ -535,6 +647,46 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 				return false; \
 			} \
 			(((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ); \
+			return true; \
+		} \
+	}; \
+	\
+	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CMemberScriptBinding##N<OBJECT_TYPE_PTR, FUNC_TYPE, Vector FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
+	{ \
+	public: \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( pContext ); \
+			\
+			if ( nArguments != N || !pReturn || !pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_vec ) Vector( (((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_vec; \
+			return true; \
+		} \
+	}; \
+	\
+	template <class OBJECT_TYPE_PTR, typename FUNC_TYPE FUNC_TEMPLATE_FUNC_PARAMS_##N> \
+	class CMemberScriptBinding##N<OBJECT_TYPE_PTR, FUNC_TYPE, QAngle FUNC_BASE_TEMPLATE_FUNC_PARAMS_PASSTHRU_##N> \
+	{ \
+	public: \
+		static bool Call( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage ) \
+		{ \
+			Assert( nArguments == N ); \
+			Assert( pReturn ); \
+			Assert( pContext ); \
+			\
+			if ( nArguments != N || !pReturn || !pContext ) \
+			{ \
+				return false; \
+			} \
+			new ( &temporaryReturnStorage.m_ang ) QAngle( (((OBJECT_TYPE_PTR)(pContext))->*ScriptConvertFuncPtrFromVoid<FUNC_TYPE>(pFunction))( SCRIPT_BINDING_ARGS_##N ) ); \
+			*pReturn = temporaryReturnStorage.m_ang; \
 			return true; \
 		} \
 	}; \
@@ -561,7 +713,11 @@ inline FUNCPTR_TYPE ScriptConvertFuncPtrFromVoid( void *p )
 	}
 */
 
+//note: no memory is actually allocated in the functions that get defined,
+//      it merely uses placement-new for which we need to disable this
+#include "tier0/memdbgoff.h"
 FUNC_GENERATE_ALL( DEFINE_SCRIPT_BINDINGS );
+#include "tier0/memdbgon.h"
 
 //-----------------------------------------------------------------------------
 // 

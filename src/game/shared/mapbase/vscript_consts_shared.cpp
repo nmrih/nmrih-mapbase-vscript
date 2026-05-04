@@ -14,6 +14,7 @@
 #include "c_ai_basenpc.h"
 #else
 #include "ai_basenpc.h"
+#include "ai_senses.h"
 #include "globalstate.h"
 #endif
 
@@ -418,12 +419,8 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstant( g_pScriptVM, ROPE_NO_GRAVITY, "Disable gravity on this rope. (for use in rope flags)" );
 	ScriptRegisterConstant( g_pScriptVM, ROPE_NUMFLAGS, "The number of rope flags recognized by the game." );
 
-	// @NMRiH - Felis: Point to persistent memory, otherwise this yields nonsense
-	static Vector s_vecScriptConstantRopeGravity = Vector( ROPE_GRAVITY );
-	ScriptRegisterConstantNamed( g_pScriptVM, s_vecScriptConstantRopeGravity, "ROPE_GRAVITY", "Default rope gravity vector." );
-	/*
-	ScriptRegisterConstantNamed( g_pScriptVM, Vector( ROPE_GRAVITY ), "ROPE_GRAVITY", "Default rope gravity vector." );
-	*/
+	static Vector vecRopeGravity( ROPE_GRAVITY );
+	ScriptRegisterConstantNamed( g_pScriptVM, vecRopeGravity, "ROPE_GRAVITY", "Default rope gravity vector." );
 
 	// 
 	// Sounds
@@ -493,8 +490,8 @@ void RegisterSharedScriptConstants()
 
 #ifdef GAME_DLL
 	// 
-	// AI Sounds
-	// (QueryHearSound hook can use these)
+	// AI Senses
+	// (NPC hooks can use these)
 	// 
 	ScriptRegisterConstant( g_pScriptVM, SOUND_NONE, "Sound type used in QueryHearSound hooks, etc." );
 	ScriptRegisterConstant( g_pScriptVM, SOUND_COMBAT, "Sound type used in QueryHearSound hooks, etc." );
@@ -548,6 +545,11 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstantNamed( g_pScriptVM, (int)SOUNDENT_VOLUME_SHOTGUN, "SOUNDENT_VOLUME_SHOTGUN", "Sound volume preset for use in InsertAISound, etc." );
 	ScriptRegisterConstantNamed( g_pScriptVM, (int)SOUNDENT_VOLUME_PISTOL, "SOUNDENT_VOLUME_PISTOL", "Sound volume preset for use in InsertAISound, etc." );
 	ScriptRegisterConstantNamed( g_pScriptVM, (int)SOUNDENT_VOLUME_EMPTY, "SOUNDENT_VOLUME_PISTOL", "Sound volume preset for use in InsertAISound, etc." );
+
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_ALL, "SEEN_ALL", "All NPC sight arrays. Used in GetFirstSeenEntity, etc." );
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_HIGH_PRIORITY, "SEEN_HIGH_PRIORITY", "NPC sight array for players. Used in GetFirstSeenEntity, etc." );
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_NPCS, "SEEN_NPCS", "NPC sight array for other NPCs. Used in GetFirstSeenEntity, etc." );
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_MISC, "SEEN_MISC", "NPC sight array for objects. Used in GetFirstSeenEntity, etc." );
 
 	// 
 	// Capabilities
@@ -674,7 +676,7 @@ void RegisterSharedScriptConstants()
 	//ScriptRegisterConstant( g_pScriptVM, AISS_AUTO_PVS_AFTER_PVS, "" );
 	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAGS_NONE, "No sleep flags. (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
 	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAG_AUTO_PVS, "Indicates a NPC will sleep upon exiting PVS. (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
-	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAG_AUTO_PVS_AFTER_PVS, "Indicates a NPC will sleep upon exiting PVS after entering PVS for the first time(????\?) (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
+	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAG_AUTO_PVS_AFTER_PVS, "Indicates a NPC will sleep upon exiting PVS after entering PVS for the first time(?) (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
 
 	ScriptRegisterConstantNamed( g_pScriptVM, CAI_BaseNPC::SCRIPT_PLAYING, "SCRIPT_PLAYING", "Playing the action animation." );
 	ScriptRegisterConstantNamed( g_pScriptVM, CAI_BaseNPC::SCRIPT_WAIT, "SCRIPT_WAIT", "Waiting on everyone in the script to be ready. Plays the pre idle animation if there is one." );

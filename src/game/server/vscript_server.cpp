@@ -27,9 +27,6 @@
 
 extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
 
-// @NMRiH - Felis: Ported from Mapbase
-extern int vscript_debugger_port;
-
 // #define VMPROFILE 1
 
 #ifdef VMPROFILE
@@ -180,6 +177,7 @@ public:
 		}
 	};
 
+private:
 } g_ScriptEntityIterator;
 
 BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETON "The global list of entities" )
@@ -1067,11 +1065,7 @@ bool VScriptServerInit()
 				RegisterSharedScriptConstants();
 				RegisterSharedScriptFunctions();
 
-				if ( vscript_debugger_port )
-				{
-					g_pScriptVM->ConnectDebugger( vscript_debugger_port );
-					vscript_debugger_port = 0;
-				}
+				g_pScriptVM->ConnectDebugger( vscript_debugger_port );
 #endif
 
 				if (scriptLanguage == SL_SQUIRREL)
