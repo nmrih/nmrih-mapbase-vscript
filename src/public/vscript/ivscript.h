@@ -1003,7 +1003,7 @@ public:
 	virtual void Shutdown() = 0;
 
 	// @NMRiH - Felis: Ported from Mapbase
-	virtual bool ConnectDebugger( int port = 0 ) = 0;
+	virtual bool ConnectDebugger( int port = 0, float timeout = 0.0f ) = 0;
 	/*
 	virtual bool ConnectDebugger() = 0;
 	*/

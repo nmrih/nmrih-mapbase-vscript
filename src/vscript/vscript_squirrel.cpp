@@ -119,7 +119,7 @@ public:
 	virtual bool Init() override;
 	virtual void Shutdown() override;
 
-	virtual bool ConnectDebugger( int port = 0 ) override;
+	virtual bool ConnectDebugger( int port = 0, float timeout = 0.0f ) override;
 	virtual void DisconnectDebugger() override;
 
 	virtual ScriptLanguage_t GetLanguage() override;
@@ -2175,22 +2175,34 @@ void SquirrelVM::Shutdown()
 }
 
 bool VScriptRunScript( const char *pszScriptName, HSCRIPT hScope, bool bWarnMissing );
-bool SquirrelVM::ConnectDebugger( int port )
+
+bool SquirrelVM::ConnectDebugger( int port, float timeout )
 {
 	if ( !debugger_ )
 	{
 		debugger_ = sqdbg_attach_debugger( vm_ );
-		if ( sqdbg_listen_socket( debugger_, port ) != 0 )
+
+		if ( sqdbg_listen_socket( debugger_, port ) == 0 && timeout )
 		{
-			sqdbg_destroy_debugger( vm_ );
-			debugger_ = nullptr;
-			return false;
+			float startTime = Plat_FloatTime();
+
+			while ( !sqdbg_is_client_connected( debugger_ ) )
+			{
+				float time = Plat_FloatTime();
+				if ( time - startTime > timeout )
+					break;
+
+				ThreadSleep( 50 );
+
+				sqdbg_frame( debugger_ );
+			}
 		}
 	}
 	else
 	{
 		sqdbg_frame( debugger_ );
 	}
+
 	VScriptRunScript( "sqdbg_definitions.nut", NULL, false );
 	return true;
 }
@@ -2251,12 +2263,24 @@ HSCRIPT SquirrelVM::CompileScript(const char* pszScript, const char* pszId)
 {
 	SquirrelSafeCheck safeCheck(vm_);
 
-	Assert(vm_);
-	if (pszId == nullptr) pszId = "<unnamed>";
-	if (SQ_FAILED(sqdbg_compilebuffer(vm_, pszScript, strlen(pszScript), pszId, SQTrue)))
+	bool bUnnamed = ( pszId == nullptr );
+	if ( bUnnamed )
+	{
+		pszId = "<unnamed>";
+	}
+
+	int nScriptLen = strlen(pszScript);
+
+	if (SQ_FAILED(sq_compilebuffer(vm_, pszScript, nScriptLen, pszId, SQTrue)))
 	{
 		return nullptr;
 	}
+
+	if ( debugger_ && !bUnnamed )
+	{
+		sqdbg_on_script_compile( debugger_, pszScript, nScriptLen, pszId, strlen(pszId) );
+	}
+
 	HSQOBJECT* obj = new HSQOBJECT;
 	sq_resetobject(obj);
 	sq_getstackobj(vm_, -1, obj);

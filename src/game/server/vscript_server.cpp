@@ -1068,15 +1068,11 @@ bool VScriptServerInit()
 				RegisterSharedScriptConstants();
 				RegisterSharedScriptFunctions();
 
-				// @NMRiH - Felis: TODO: Revisit after sqdbg merge
-				/*
 				if ( script_connect_debugger_on_mapspawn.GetInt() == 2 )
 				{
 					g_pScriptVM->ConnectDebugger( vscript_debugger_port, 10.0f );
 				}
 				else if ( script_connect_debugger_on_mapspawn.GetInt() != 0 )
-				*/
-				if ( script_connect_debugger_on_mapspawn.GetInt() != 0 )
 				{
 					g_pScriptVM->ConnectDebugger( vscript_debugger_port );
 				}

@@ -48,7 +48,7 @@ Refer to your client manual on attaching to a remote port.
 <details><summary>vimrc config</summary>
 
 ```vim
-	let g:vimspector_adapters =
+let g:vimspector_adapters =
 \	{
 \		"squirrel": {
 \			"name": "squirrel",
@@ -60,7 +60,7 @@ Refer to your client manual on attaching to a remote port.
 \			}
 \		}
 \	}
-	let g:vimspector_configurations =
+let g:vimspector_configurations =
 \	{
 \		"Squirrel attach": {
 \			"adapter": "squirrel",
@@ -85,7 +85,7 @@ Refer to your client manual on attaching to a remote port.
 <details><summary>vimrc config</summary>
 
 ```lua
-local dap = require('dap')
+local dap = require("dap")
 
 dap.adapters.squirrel = function( callback, config )
 	callback( {
@@ -119,48 +119,124 @@ Debugger specific features that are outside of the _Debug Adapter Protocol_.
 
 Append a flag on a watch or tracepoint expression after a comma (`,`) to format the variable.
 
-Available flags: `x` (hexadecimal), `b` (binary).
+Specifier  | Format                                  | Example value             | Result
+-----------|---------------------------------------  |---------------------------|--------------
+`x`        | hexadecimal                             | 221                       | 0xdd
+`X`        | hexadecimal (uppercase)                 | 221                       | 0xDD
+`xb`       | hexadecimal (no prefix)                 | 221                       | dd
+`x2`       | hexadecimal (padded - 2 bytes)          | 221                       | 0x00dd
+`x0`       | hexadecimal (padded - full)             | 221                       | 0x000000dd
+`X0b`      | hexadecimal (uppercase, pad, no prefix) | 221                       | 000000DD
+`b`        | binary                                  | 221                       | 0b11011101
+`bb`       | binary (no prefix)                      | 221                       | 11011101
+`b2`       | binary (padded - 2 bytes)               | 221                       | 0b0000000011011101
+`b0`       | binary (padded - full)                  | 221                       | 0b00000000000000000000000011011101
+`b0b`      | binary (padded, no prefix)              | 221                       | 00000000000000000000000011011101
+`o`        | octal                                   | 221                       | 0335
+`d`        | decimal                                 | 0xdd                      | 221
+`dx`       | interpret float as integer (hexadecimal)| 1.0                       | 0x3f800000
+`c`        | character                               | 'A'                       | 65 'A'
+`cx`       | character (hexadecimal)                 | 'A'                       | 0x41 'A'
+`f`        | float                                   | FLT\_MAX                  | 340282346638528859811704183484516925440.000000
+`e`        | float (scientific)                      | 1250000.0                 | 1.250000e+06
+`g`        | float/scientific                        | 1250000.0                 | 1.25e+06
+`na`       | no address                              | 0x010C5F20 {x = 0, y = 1} | x = 0, y = 1
+`nq`       | no quote                                | "A\tB"                    | A    B
+`l`        | list members                            | 0x010C5F20 {size=4}       | 0x010C5F20 [26500, 29358, 15724, 26962]
+`lna`      | list members, no address                | 0x010C5F20 {size=4}       | [26500, 29358, 15724, 26962]
+`lnax`     | list members, no address, hexadecimal   | 0x010C5F20 {size=4}       | [0x6784, 0x72ae, 0x3d6c, 0x6952]
 
 ### Watch scope locks
 
-Flagging a watch variable 'locked' (`*` after a comma) will maintain the scope and executing thread of the expression at the time of its successful evaluation. Stepping preserves this lock while continuing execution clears it.
+Flagging a watch expression 'locked' (`*` after a comma) will maintain the scope and executing thread of the expression at the time of its successful evaluation. Stepping preserves this lock while continuing execution clears it.
 
-### Special watch expressions
+### Extended syntax
 
-`$function`, `$caller`
+Available in watch and tracepoint expressions and `sqdbg_eval` script function.
+
+Virtual members and user defined custom class members can be accessed.
+
+```
+local arr;
+sqdbg_eval("arr = []");
+local refs = sqdbg_eval("arr.$refs");     // 1
+local str = sqdbg_eval("refs << 4,x");    // "0x10"
+```
+
+Reference counted Squirrel objects can be tracked by their addresses with the `*` operator.
+
+```
+arr <- "arr" !in this || typeof arr != "array" ? ["A" * 2, "B" * 4] : arr : (array)   : 0x010C5F20 {size=2}
+arr                      : (array)   : 0x010C5F20 {size=2}
+arr == *0x010C5F20       : (bool)    : true
+&arr == 0x010C5F20       : (bool)    : true
+*0x010C5F20,lna          : (array)   : ["AA", "BBBB"]
+(*0x010C5F20)[0]         : (string)  : "AA"
+(*0x010C5F20).$allocated : (integer) : 4
+(*0x010C5F20).$size      : (integer) : 2
+```
+
+Available special watch expression keywords: `$function`, `$caller`, `$stack`, `$breakpoints`
 
 ### Function breakpoints
 
-Use the syntax `funcname,filename` to set breakpoints on function _funcname_ found in file _filename_.
+Use the syntax `funcname,filename:line` to set breakpoints on specific functions from specific files. `filename` and `line` are optional settings.
 
 Use the function name `()` to set breakpoints on anonymous functions.
 
+Line number is the line where the first instruction in a function is defined, or the opening bracket of the function if it was compiled without debuginfo.
+
+```
+ 14
+ 15 // `constructor,script.nut:20` (with debuginfo)
+ 16 // `constructor,script.nut:18` (without debuginfo)
+ 17 function CTest::constructor()
+ 18 {
+ 19
+ 20     local a = 1;
+ 21 }
+ 22
+ 23 // `(),script.nut:28` (with debuginfo)
+ 24 // `(),script.nut:26` (without debuginfo)
+ 25 local fn = function()
+ 26 {
+ 27
+ 28     dummy();
+ 29 }
+ 30
+```
+
 ### Tracepoint / Logpoint
 
-Expressions and format specifiers within `{}` are evaluated. Escape the opening bracket to print brackets `\{`.
+Expressions and format specifiers within `{}` are evaluated.
 
 Available special keywords: `$FUNCTION`, `$CALLER`, `$HITCOUNT`
 
+Escapable characters: `\`, `{`, `$`, `n`, `t`
+
+If the entire expression is wrapped between `{/` and `}`, it is executed without breaking or printing.
+
 ### Class definitions
 
-The script function `sqdbg_define_class` is used to display the class name and class instance values in variable views.
+The script function `sqdbg_define_class` is used to display the class name and class instance values in variable views. Data breakpoints can be added on specified custom members.
 
 ```c
 sqdbg_define_class( class, params )
 ```
 
-Parameter      | Type             | Description
----------------|------------------|--------------
-name           | string           | Class name
-value          | function->string | Class instance value. Instance is passed to the function (`this` is the instance). Returns a string to be displayed in variable views. Instances of classes inherited from this class use this value unless they have their own values defined.
-metamembers    | array            | Elements of this array are passed to `_get` and `_set` metamethods of the class and displayed as instance members
+Parameter      | Type                   | Description
+---------------|------------------------|--------------
+name           | string                 | Class name
+value          | function->string       | Class instance value. Instance is passed to the function (`this` is the instance). Returns a string to be displayed in variable views. Instances of classes inherited from this class use this value unless they have their own values defined.
+metamembers    | array                  | Elements of this array are passed to `_get` and `_set` metamethods of the class and displayed as instance members
+custommembers  | array\|function->array | Elements of this array are tables that contain `string name`, `function get(optional key)`, `optional function set(optional key, val)` keys. This is useful for peeking into third-party or native classes that do not have exposed members. The functions are called within the instance environment.
 
-Example:
+Meta members example:
 
 ```js
 class ExampleClass
 {
-	field = 24;
+	field = 1;
 
 	function _get(i)
 	{
@@ -194,79 +270,274 @@ v test: 0x000001DD43DFE100 {field = 33, random = 15724}
     field: 33
 ```
 
+Custom members example on native classes with no Squirrel member variables:
+
+```js
+sqdbg_define_class( KeyValues,
+{
+	name = "KeyValues",
+	value = KeyValues.GetName,
+	// Populate unique member lists for each instance
+	custommembers = function()
+	{
+		local ret = [];
+
+		for ( local child = GetFirstSubKey(); child; child = child.GetNextKey() )
+		{
+			local kv = child;
+			ret.append( {
+				name = kv.GetName(),
+				get = function()
+				{
+					if ( kv.GetFirstSubKey() )
+						return kv;
+					return kv.GetString();
+				}
+			} );
+		}
+
+		return ret;
+	}
+} );
+
+// External accessors
+local GetNetPropInt = function( key ) { return ::NetProps.GetPropInt( this, key ); }
+local SetNetPropInt = function( key, val ) { return ::NetProps.SetPropInt( this, key, val ); }
+local GetNetPropVector = function( key ) { return ::NetProps.GetPropVector( this, key ); }
+local SetNetPropVector = function( key, val ) { return ::NetProps.SetPropVector( this, key, val ); }
+
+sqdbg_define_class( C_BaseEntity,
+{
+	name = "C_BaseEntity",
+	value = C_BaseEntity.tostring,
+	custommembers =
+	[
+		{ name = "m_iHealth", get = GetNetPropInt, set = SetNetPropInt },
+		{ name = "m_vecNetworkOrigin", get = GetNetPropVector, set = SetNetPropVector },
+		{ name = "m_angNetworkAngles", get = GetNetPropVector, set = SetNetPropVector },
+	]
+} );
+
+sqdbg_define_class( IPhysicsObject,
+{
+	name = "IPhysicsObject",
+	value = IPhysicsObject.GetName,
+	custommembers =
+	[
+		{ name = "inertia", get = IPhysicsObject.GetInertia },
+		{ name = "isAsleep", get = IPhysicsObject.IsAsleep },
+		{ name = "isCollisionEnabled", get = IPhysicsObject.IsCollisionEnabled },
+		{ name = "isGravityEnabled", get = IPhysicsObject.IsGravityEnabled },
+		{ name = "isMotionEnabled", get = IPhysicsObject.IsMotionEnabled },
+		{ name = "mass", get = IPhysicsObject.GetMass, set = IPhysicsObject.SetMass },
+	]
+} );
+```
+
 ### Function disassembly
 
-The script function `sqdbg_disassemble` can be used to get information and disassembly of input functions.
+The script function `sqdbg_disassemble` can be used to get information and disassembly of script functions.
 
 Example:
 
 ```lua
-function test()
+function IntersectRayWithPlane( org, dir, normal, dist )
 {
-	local arr = array(4);
-	foreach ( i, v in arr )
-		arr[i] = rand();
-	print(arr + "\n");
+	local d	= dir.Dot( normal );
+	if ( d )
+		return ( dist - org.Dot( normal ) ) / d;
+	return 0.0;
 }
 
-local out = sqdbg_disassemble( test );
-print( out );
+local out = sqdbg_disassemble( IntersectRayWithPlane );
+foreach ( line in split( out, "\n" ) )
+	print( line + "\n" );
 ```
 
 Output:
 
 ```js
-stacksize     7
-instructions  15
-literals      4
-localvarinfos 5
+stacksize     9
+instructions  13
+literals      1
+localvarinfos 6
+parameters    5
 ------
-0      0x08 1 0 0 2                 PREPCALLK "array"
-1      0x02 3 4 0 0                 LOADINT 4
-2      0x06 1 1 2 2                 CALL
-3      0x18 2 3 0 0                 LOADNULLS 3
-4      0x33 1 6 2 0                 FOREACH
-5      0x34 1 6 2 0                 POSTFOREACH
-6      0x08 5 1 0 6                 PREPCALLK "rand"
-7      0x06 5 5 6 1                 CALL
-8      0x0D 255 1 2 5               SET
-9      0x1C 0 -6 0 0                JMP -6
-10     0x08 2 2 0 3                 PREPCALLK "print"
-11     0x01 4 3 0 0                 LOAD "\n"
-12     0x11 4 4 1 0                 ADD
-13     0x06 255 2 3 2               CALL
-14     0x17 255 0 0 0               RETURN
+this, org, dir, normal, dist
+------
+0      0x08 5 0 2 6                 PREPCALLK [5] = [dir]->"Dot"
+1      0x0A 7 3 0 0                 MOVE [7] = [normal]
+2      0x06 5 5 6 2                 CALL [d] = [5] 2
+3      0x1E 5 6 0 0                 JZ [d] 6
+4      0x08 6 0 1 7                 PREPCALLK [6] = [org]->"Dot"
+5      0x0A 8 3 0 0                 MOVE [8] = [normal]
+6      0x06 6 6 7 2                 CALL [6] = [6] 2
+7      0x12 6 6 4 0                 SUB [6] = [dist] - [6]
+8      0x14 6 5 6 0                 DIV [6] /= [d]
+9      0x17 1 6 7 0                 RETURN [6]
+10     0x03 6 0 0 0                 LOADFLOAT [6] = 0
+11     0x17 1 6 7 0                 RETURN [6]
+12     0x17 255 0 0 0               RETURN
 ```
 
-### Manual breakpoint
+### Programmatic breakpoints
 
-The script function `sqdbg_break` can be used to break execution while a debugger is attached. This can be used to implement assertions instead of throwing exceptions as exceptions are not recoverable.
+Script function         | Description
+------------------------|--------------
+`sqdbg_break`           | Break execution on the next instruction
+`sqdbg_watch`           | Add data breakpoint on expression with optional condition, hit count and log message
+
+### Profiler
+
+Script function         | Description
+------------------------|--------------
+`sqdbg_prof_start`      | Enable profiler and start collecting data
+`sqdbg_prof_stop`       | Disable profiler and remove all collected data
+`sqdbg_prof_pause`      | Pause profiler
+`sqdbg_prof_resume`     | Resume paused profiler. Should be placed in the same call frame as `pause`
+`sqdbg_prof_begin`      | Begin timing named block
+`sqdbg_prof_end`        | End timing block. Should be placed in the same call frame as `begin`
+`sqdbg_prof_reset`      | Reset profile data for all collected data or specified group in optionally specified thread
+`sqdbg_prof_gets`       | Get profile report of the current or specified thread, or the specified block as string. Parameter optionally takes a thread, and requires group name or report type (0: call graph, 1: flat). E.g.: `sqdbg_prof_gets(1)` or `sqdbg_prof_gets(thread, 1)`. Measured peak times are ignored in total and average times in block reports.
+`sqdbg_prof_print`      | Print profile report. Identical to printing each line from `sqdbg_prof_gets`
+
+Example call graph output:
+```
+   %   total time  time/call      calls  func
+ 79.44    2.53  s  172.21 us      14690  FrameThink, keyframes.nut:2056 (0x437DD438)
+ 54.27    1.73  s  155.81 us      11091  |  ManipulatorThink, keyframes.nut:2700 (0x43736008)
+ 18.36  584.75 ms   45.89 us      12743  |  |  DrawCircleHalfBright, keyframes.nut:2444 (0x0CFAC200)
+ 17.22  548.43 ms   43.84 us      12510  |  |  DrawCircle, keyframes.nut:2421 (0x0C44E400)
+  1.42   45.06 ms    2.36 us      19104  |  |  DrawRectFilled, keyframes.nut:2368 (0x0BB4BB00)
+  1.23   39.17 ms    5.04 us       7776  |  |  Manipulator_DrawPlane, keyframes.nut:2627 (0x0D3C5800)
+  0.41   13.07 ms    1.68 us       7776  |  |  |  VectorAngles, vs_math.nut:663 (0x0C44A000)
+  1.12   35.72 ms  735.16 ns      48589  |  |  MatrixGetColumn, vs_math.nut:2965 (0x0AB7F800)
+  0.96   30.56 ms    3.93 us       7776  |  |  Manipulator_DrawAxis, keyframes.nut:2591 (0x0CFAC900)
+  0.48   15.16 ms    1.95 us       7776  |  |  |  VectorAngles, vs_math.nut:663 (0x0C44A000)
+  0.94   30.01 ms    3.43 us       8761  |  |  VectorVectors, vs_math.nut:587 (0x0C449C00)
+  0.90   28.81 ms    7.28 us       3956  |  |  Manipulator_IsIntersectingAxis, keyframes.nut:2560 (0x0C44EC00)
+  0.65   20.56 ms    5.20 us       3956  |  |  |  IntersectRayWithRay, vs_math.nut:5980 (0x0CBBA200)
+  0.21    6.81 ms  861.21 ns       7912  |  |  |  |  VectorNegate, vs_math.nut:952 (0x09B12980)
+  0.57   18.00 ms   50.43 us        357  |  |  DrawGrid, keyframes.nut:2318 (0x0C0ABA00)
+  0.54   17.04 ms    2.21 us       7716  |  |  IsRayIntersectingSphere, vs_math.nut:5736 (0x0C0C1F00)
+  0.51   16.39 ms    5.68 us       2887  |  |  UpdateFromMatrix, keyframes.nut:826 (0x09B14780)
+  0.22    6.97 ms    2.41 us       2887  |  |  |  MatrixAngles, vs_math.nut:1589 (0x0CBB6600)
+  0.12    3.86 ms    1.34 us       2887  |  |  |  MatrixVectors, vs_math.nut:1562 (0x0C0C4580)
+  0.44   14.16 ms    4.57 us       3102  |  |  DrawRectRotated, keyframes.nut:2379 (0x0C0AB680)
+  0.34   10.73 ms    2.29 us       4686  |  |  IsRayIntersectingCircleSliceFront, keyframes.nut:2520 (0x0C0AB300)
+  0.31    9.90 ms    3.43 us       2887  |  |  MatrixBuildRotationAboutAxis, vs_math.nut:3318 (0x0CFA6700)
+  0.28    8.92 ms    1.41 us       6315  |  |  IntersectInfiniteRayWithSphere, vs_math.nut:5778 (0x0C85DA00)
+  0.27    8.67 ms    2.59 us       3352  |  |  Manipulator_IsIntersectingPlane, keyframes.nut:2580 (0x0B708EC0)
+  0.04    1.40 ms  417.75 ns       3352  |  |  |  IntersectRayWithPlane, vs_math.nut:6013 (0x0A711480)
+ 19.40  617.70 ms   55.69 us      11091  |  DrawFrustum, keyframes.nut:861 (0x43768748)
+  6.80  216.63 ms   19.53 us      11091  |  |  MatrixInverseGeneral, vs_math.nut:2823 (0x436E9388)
+  3.99  127.20 ms    1.43 us      88728  |  |  Vector3DMultiplyPositionProjective, vs_math.nut:3480 (0x0C862F00)
+  3.67  116.91 ms   10.54 us      11091  |  |  WorldToScreenMatrix, vs_math.nut:3861 (0x0CFA6E00)
+...
+ 13.83  440.50 ms  149.93 us       2938  EditModeThink, keyframes.nut:1661 (0x4366CBD8)
+  8.63  274.69 ms   83.77 us       3279  |  DrawFrustum1, keyframes.nut:846 (0x0A711C00)
+  8.48  269.94 ms   82.35 us       3278  |  |  DrawViewFrustum, vs_math.nut:4054 (0x0C0C3400)
+  5.23  166.42 ms   50.77 us       3278  |  |  |  DrawFrustum, vs_math.nut:4033 (0x0CFA7500)
+  4.83  153.90 ms    3.91 us      39336  |  |  |  |  0x0B707B80, vs_math.nut:3990
+  3.60  114.52 ms    1.46 us      78672  |  |  |  |  |  Vector3DMultiplyPositionProjective, vs_math.nut:3480 (0x0C862F00)
+  1.92   61.05 ms   18.62 us       3278  |  |  |  MatrixInverseGeneral, vs_math.nut:2823 (0x436E9388)
+  1.01   32.21 ms    9.82 us       3278  |  |  |  WorldToScreenMatrix, vs_math.nut:3861 (0x0CFA6E00)
+...
+```
+
+Example flat profile output:
+```
+   %   total time  time/call      calls  func
+ 28.17    2.53  s  172.21 us      14690  FrameThink, keyframes.nut:2056 (0x437DD438)
+ 19.24    1.73  s  155.81 us      11091  ManipulatorThink, keyframes.nut:2700 (0x43736008)
+  6.88  617.70 ms   55.69 us      11091  DrawFrustum, keyframes.nut:861 (0x43768748)
+  6.51  584.75 ms   45.89 us      12743  DrawCircleHalfBright, keyframes.nut:2444 (0x0CFAC200)
+  6.11  548.43 ms   43.84 us      12510  DrawCircle, keyframes.nut:2421 (0x0C44E400)
+  4.91  440.50 ms  149.93 us       2938  EditModeThink, keyframes.nut:1661 (0x4366CBD8)
+  3.09  277.92 ms   19.32 us      14382  MatrixInverseGeneral, vs_math.nut:2823 (0x436E9388)
+  3.06  274.69 ms   83.77 us       3279  DrawFrustum1, keyframes.nut:846 (0x0A711C00)
+  3.01  270.03 ms   82.35 us       3279  DrawViewFrustum, vs_math.nut:4054 (0x0C0C3400)
+  2.69  241.78 ms    1.44 us     167436  Vector3DMultiplyPositionProjective, vs_math.nut:3480 (0x0C862F00)
+  1.85  166.47 ms   50.77 us       3279  DrawFrustum, vs_math.nut:4033 (0x0CFA7500)
+  1.71  153.95 ms    3.91 us      39348  0x0B707B80, vs_math.nut:3990
+  1.66  149.24 ms   10.38 us      14382  WorldToScreenMatrix, vs_math.nut:3861 (0x0CFA6E00)
+  0.67   60.56 ms    2.71 us      22373  DrawRectRotated, keyframes.nut:2379 (0x0C0AB680)
+  0.58   52.06 ms    3.79 us      13746  MainViewOrigin, keyframes.nut:644 (0x0AB80000)
+  0.50   45.06 ms    2.36 us      19104  DrawRectFilled, keyframes.nut:2368 (0x0BB4BB00)
+  0.48   43.39 ms    3.02 us      14382  MatrixMultiply, vs_math.nut:3215 (0x436D9B58)
+  0.44   39.17 ms    5.04 us       7776  Manipulator_DrawPlane, keyframes.nut:2627 (0x0D3C5800)
+  0.40   35.72 ms  735.16 ns      48589  MatrixGetColumn, vs_math.nut:2965 (0x0AB7F800)
+  0.36   32.02 ms    2.23 us      14382  ComputeCameraVariables, vs_math.nut:3835 (0x0C85EE00)
+  0.34   30.56 ms    3.93 us       7776  Manipulator_DrawAxis, keyframes.nut:2591 (0x0CFAC900)
+  0.33   30.01 ms    3.43 us       8761  VectorVectors, vs_math.nut:587 (0x0C449C00)
+  0.32   28.81 ms    7.28 us       3956  Manipulator_IsIntersectingAxis, keyframes.nut:2560 (0x0C44EC00)
+  0.31   28.23 ms    1.82 us      15552  VectorAngles, vs_math.nut:663 (0x0C44A000)
+  0.23   21.06 ms  488.17 ns      43146  constructor, vs_math.nut:423 (0x0C0C5A80)
+  0.23   20.56 ms    5.20 us       3956  IntersectRayWithRay, vs_math.nut:5980 (0x0CBBA200)
+  0.20   18.00 ms   50.43 us        357  DrawGrid, keyframes.nut:2318 (0x0C0ABA00)
+...
+```
+
+Example block profile output:
+```
+(sqdbg) prof | CSGOHudWeaponSelection::Paint                   : total 285.39 ms, avg 109.55 us, peak  66.59 ms(1), hits 2606
+(sqdbg) prof | CSGOHudWeaponSelection::GetWeapon               : total  28.66 ms, avg   9.95 us, peak  43.10 us(1944), hits 2880
+(sqdbg) prof | CSGOHudWeaponSelection::PerformLayoutInternal   : total  49.74 ms, avg 417.96 us, peak  15.69 ms(1), hits 120
+```
+
+### Data breakpoint log
+
+DAP `DataBreakpoint` object supports `logMessage` field. It is also usable with `sqdbg_watch`.
+
+```
+sqdbg_watch( "this.var", "", 0, "var changed in $FUNCTION: $OLDVALUE -> $NEWVALUE" );
+```
 
 ## Notes
 
-### Stepping and line breakpoints
+### Line breakpoints
 
-Stepping, line breakpoints, and data breakpoint locations require scripts to be compiled with debug information available. The debugger enables this when attaching, however this may be after some scripts are loaded. You may use `enabledebuginfo(1)` script function before loading your scripts to ensure that they are compiled with debug information.
+Line breakpoints, data breakpoint locations and accurate line stepping require scripts to be compiled with debug information available. The debugger enables this on attachment, however this may be after some scripts are loaded. `enabledebuginfo(1)` script function can be used before loading scripts to ensure that they are compiled with debug information.
 
-Without this debug info, you may still set function and exception breakpoints, and step out of function breakpoints, but not step in.
+Without this debug info, you may still break with `sqdbg_break`, set function and exception breakpoints, and step execution.
 
-### Breaking execution (source files)
+### Breaking execution
 
-When a function or exception breakpoint is hit, the debugger cannot determine which file the break occured in because Squirrel is only aware of the "source name" passed in by the parent program. Adding a breakpoint in a file in your editor registers its name with its path in the debugger. If multiple files with the same name exist, the path of the file with the most recent breakpoint will be assumed as the script path.
+When a function or exception breakpoint is hit, the debugger cannot determine which file the break occured in because Squirrel is only aware of the "source name" passed in by the parent program. Adding a line breakpoint in a file in your editor registers its name with its path in the debugger. If multiple files with the same name exist, the path of the file with the most recent breakpoint will be assumed as the script path.
 
 If source files are unavailable, you may always use the disassembly view.
 
 ### Function breakpoints
 
-To be able to set function breakpoints, the functions you want to break into need to have been compiled in the syntax `function MyFunc()` instead of `MyFunc <- function()`. In Squirrel, the former sets the name of the function while the latter creates a nameless, anonymous function.
+Adding named function breakpoints requires the desired functions to be compiled in the syntax `function MyFunc()` instead of `MyFunc <- function()`. In Squirrel, the former sets the name of the function while the latter creates a nameless, anonymous function which can be broken into by specifying file name and line number in the anonymous function breakpoint.
 
-### Watch variables
+### Special accessors
 
-If you wish to watch a variable in the current environment and a variable with the same name exists as a local variable, use the keyword `__this` to access it (e.g. `__this.myvar`).
+Use the keywords `__this`, `__vargv`, `__vargc` in REPL and breakpoint conditions to access current environment and the local vargv respectively. Using `this` and `vargv` in watch and tracepoint expressions will work fine.
 
-### Data breakpoint conditions
+### Compiler execution
 
-The condition is directly checked against the value of the data (as in `value == condition`).
+Input to sqdbg compiler (watch/tracepoint expressions, REPL code completion, `sqdbg_eval` function) is executed as it is parsed. For example, the code `fn()....++` will execute the function call `fn()` before parsing the invalid syntax.
+
+### Data breakpoints
+
+Local variable watches are automatically removed at the end of the scope of the target variable.
+
+Condition requires a token as prefix. Strict (in)equality requires matching type (i.e. float is not equal to integer). Multiple breakpoints with different conditions can be added on a single variable to match multiple values.
+
+The condition is compiled at the time and within the stack frame of its creation. Late lookups are not supported.
+
+Token | Description                     | Example input   | Evaluation
+------|---------------------------------|-----------------|------------------
+`==`  | equal (strict)                  | `== this`       | `data == {table}`
+`!=`  | not equal (strict)              | `!= 0`          | `data != 0`
+`>`   | greater than                    | `> PI * 0.5`    | `data > 1.570796`
+`>=`  | greater than or equal to        | `>= 0`          | `data >= 0`
+`<`   | less than                       | `< rand()`      | `data < 18467`
+`<=`  | less than or equal to           | `<= 0`          | `data <= 0`
+`&`   | bitwise AND, not equal to zero  | `& 0x2`         | `(data & 0x2) != 0`
+`!&`  | bitwise AND, equal to zero      | `!& 0x2`        | `(data & 0x2) == 0`
+`=&`  | bitwise AND, equal to input     | `=& 0x2 \| 0x4` | `(data & 0x6) == 0x6`
 
 ## Licence
 
