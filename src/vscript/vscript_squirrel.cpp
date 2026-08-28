@@ -2269,7 +2269,11 @@ HSCRIPT SquirrelVM::CompileScript(const char* pszScript, const char* pszId)
 		pszId = "<unnamed>";
 	}
 
+	// @NMRiH - Felis: Silence warning on x64
+	const SQInteger nScriptLen = (SQInteger)strlen(pszScript);
+	/*
 	int nScriptLen = strlen(pszScript);
+	*/
 
 	if (SQ_FAILED(sq_compilebuffer(vm_, pszScript, nScriptLen, pszId, SQTrue)))
 	{
