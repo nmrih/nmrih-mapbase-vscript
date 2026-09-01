@@ -22,7 +22,9 @@
 #endif
 
 // @NMRiH - Felis
+#ifdef NMRIH_DLL
 #include "nmrih_challenge_manager.h"
+#endif
 
 IScriptVM * g_pScriptVM;
 extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
@@ -42,9 +44,11 @@ extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
 #endif // VMPROFILE
 
 // This is to ensure a dependency exists between the vscript library and the game DLLs
+// @NMRiH - Felis: This statically links our impl. (Mapbase/NMRiH), otherwise, vscript.dll is used...
+#ifdef NMRIH_DLL
 extern int vscript_token;
-extern int vscript_debugger_port;
 int vscript_token_hack = vscript_token;
+#endif
 
 
 
@@ -226,9 +230,11 @@ CON_COMMAND( script, "Run the text as a script" )
 		return;
 	}
 
+#ifdef NMRIH_DLL
 	// @NMRiH - Felis
 	if ( GetChallengeManager()->IsChallengeModeActive() )
 		GetChallengeManager()->InvalidateResult( CHALLENGE_REJECT_OUTSIDE_VSCRIPT );
+#endif
 
 	const char *pszScript = args.GetCommandString();
 
@@ -404,8 +410,10 @@ CON_COMMAND( script_execute, "Run a vscript file" )
 	}
 
 	// @NMRiH - Felis
+#ifdef NMRIH_DLL
 	if ( GetChallengeManager()->IsChallengeModeActive() )
 		GetChallengeManager()->InvalidateResult( CHALLENGE_REJECT_OUTSIDE_VSCRIPT );
+#endif
 
 	VScriptRunScript( args[1], true );
 }
@@ -417,27 +425,20 @@ CON_COMMAND( script_debug, "Connect the vscript VM to the script debugger" )
 	if ( !UTIL_IsCommandIssuedByServerAdmin() )
 		return;
 #endif
-	
-	// @NMRiH - Felis: Ported from Mapbase
-#ifdef GAME_DLL
-	int port = 1212;
-#else
-	int port = 1213;
-#endif
 
 	if ( !g_pScriptVM )
 	{
 		// @NMRiH - Felis: Ported from Mapbase
-		vscript_debugger_port = port;
-		ConColorMsg( 0, CON_COLOR_VSCRIPT, "VScript VM is not running, waiting for it to attach the debugger to port %d...\n", port );
-		/*
+#ifdef NMRIH_DLL
+		NMRiH_ConColorMsg( 0, CON_COLOR_VSCRIPT, "VScript VM is not running, waiting for it to attach the debugger to port %d...\n", vscript_debugger_port );
+#else
 		Warning( "Scripting disabled or no server running\n" );
-		*/
+#endif
 		return;
 	}
 	
 	// @NMRiH - Felis: Ported from Mapbase
-	g_pScriptVM->ConnectDebugger( port );
+	g_pScriptVM->ConnectDebugger( vscript_debugger_port );
 	/*
 	g_pScriptVM->ConnectDebugger();
 	*/

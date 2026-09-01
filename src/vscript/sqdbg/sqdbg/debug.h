@@ -7,67 +7,66 @@
 #define SQDBG_DEBUG_H
 
 #ifdef _DEBUG
-	#ifdef _WIN32
+	#if defined(_WIN32) && !defined(__MINGW32__)
 		#include <crtdbg.h>
 
 		bool __IsDebuggerPresent();
+		const char *GetModuleBaseName();
 
-		static inline const char *GetModuleBaseName()
-		{
-			static char module[MAX_PATH];
-			DWORD len = GetModuleFileNameA( NULL, module, sizeof(module) );
+		#define DebuggerBreak() do { if ( __IsDebuggerPresent() ) __debugbreak(); } while(0)
 
-			if ( len != 0 )
-			{
-				for ( char *pBase = module + len; pBase-- > module; )
-				{
-					if ( *pBase == '\\' )
-						return pBase + 1;
-				}
-
-				return module;
-			}
-
-			return "";
-		}
-
-		#define DebuggerBreak() do { if ( __IsDebuggerPresent() ) __debugbreak(); } while(0);
-
-		#define Assert(x) \
+		#define Assert( x ) \
 			do { \
 				__CAT( L, __LINE__ ): \
-				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), #x)) ) { \
+				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), #x)) ) \
+				{ \
 					if ( !__IsDebuggerPresent() ) \
 						goto __CAT( L, __LINE__ ); \
 					__debugbreak(); \
 				} \
 			} while(0)
 
-		#define AssertMsg(x,msg) \
+		#define AssertMsg( x, msg ) \
 			do { \
 				__CAT( L, __LINE__ ): \
-				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), msg)) ) { \
+				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), msg)) ) \
+				{ \
 					if ( !__IsDebuggerPresent() ) \
 						goto __CAT( L, __LINE__ ); \
 					__debugbreak(); \
 				} \
 			} while(0)
 
-		#define AssertMsgF(x,msg,...) \
+		#define AssertMsg1( x, msg, a1 ) \
 			do { \
 				__CAT( L, __LINE__ ): \
-				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), msg, __VA_ARGS__)) ) { \
+				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), msg, a1)) ) \
+				{ \
+					if ( !__IsDebuggerPresent() ) \
+						goto __CAT( L, __LINE__ ); \
+					__debugbreak(); \
+				} \
+			} while(0)
+
+		#define AssertMsg2( x, msg, a1, a2 ) \
+			do { \
+				__CAT( L, __LINE__ ): \
+				if ( !(x) && (1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, GetModuleBaseName(), msg, a1, a2)) ) \
+				{ \
 					if ( !__IsDebuggerPresent() ) \
 						goto __CAT( L, __LINE__ ); \
 					__debugbreak(); \
 				} \
 			} while(0)
 	#else
-		extern "C" int printf(const char *, ...);
+		#ifndef __MINGW32__
+		extern "C"
+		#endif
+		int printf(const char *, ...);
 
 		#define DebuggerBreak() asm("int3")
 
-		#define Assert(x) \
+		#define Assert( x ) \
 			do { \
 				if ( !(x) ) \
 				{ \
@@ -76,7 +75,7 @@
 				} \
 			} while(0)
 
-		#define AssertMsg(x,msg) \
+		#define AssertMsg( x, msg ) \
 			do { \
 				if ( !(x) ) \
 				{ \
@@ -85,53 +84,44 @@
 				} \
 			} while(0)
 
-		#define AssertMsgF(x,msg,...) \
+		#define AssertMsg1( x, msg, a1 ) \
 			do { \
 				if ( !(x) ) \
 				{ \
 					::printf("Assertion failed %s:%d: ", __FILE__, __LINE__); \
-					::printf(msg, __VA_ARGS__); \
+					::printf(msg, a1); \
+					::printf("\n"); \
+					DebuggerBreak(); \
+				} \
+			} while(0)
+
+		#define AssertMsg2( x, msg, a1, a2 ) \
+			do { \
+				if ( !(x) ) \
+				{ \
+					::printf("Assertion failed %s:%d: ", __FILE__, __LINE__); \
+					::printf(msg, a1, a2); \
 					::printf("\n"); \
 					DebuggerBreak(); \
 				} \
 			} while(0)
 	#endif
-	#define Verify(x) Assert(x)
+	#define Verify( x ) Assert(x)
 #else
-	#define DebuggerBreak()
-	#define Assert(x)
-	#define AssertMsg(x,msg)
-	#define AssertMsgF(x,msg,...)
-	#define Verify(x) x
+	#define DebuggerBreak() ((void)0)
+	#define Assert( x ) ((void)0)
+	#define AssertMsg( x, msg ) ((void)0)
+	#define AssertMsg1( x, msg, a1 ) ((void)0)
+	#define AssertMsg2( x, msg, a1, a2 ) ((void)0)
+	#define Verify( x ) x
 #endif // _DEBUG
 
-#ifdef _WIN32
-	#define UNREACHABLE() do { Assert(!"UNREACHABLE"); __assume(0); } while(0);
+#define STATIC_ASSERT( x ) static_assert( x, #x )
+
+#ifdef _MSC_VER
+	#define UNREACHABLE() do { Assert(!"UNREACHABLE"); __assume(0); } while(0)
 #else
-	#define UNREACHABLE() do { Assert(!"UNREACHABLE"); __builtin_unreachable(); } while(0);
-#endif
-
-#define ___CAT(a, b) a##b
-#define __CAT(a, b) ___CAT(a,b)
-
-#ifndef assert
-#define assert(x) Assert(x)
-#endif
-
-#ifdef _DEBUG
-	class CEntryCounter
-	{
-		int *count;
-	public:
-		CEntryCounter( int *p ) : count(p) { (*count)++; }
-		~CEntryCounter() { (*count)--; }
-	};
-
-	#define TRACK_ENTRIES() \
-		static int s_EntryCount = 0; \
-		CEntryCounter entrycounter( &s_EntryCount );
-#else
-	#define TRACK_ENTRIES()
+	#define UNREACHABLE() do { Assert(!"UNREACHABLE"); __builtin_unreachable(); } while(0)
 #endif
 
 #endif // SQDBG_DEBUG_H

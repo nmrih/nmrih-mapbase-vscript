@@ -34,13 +34,13 @@ $Project "VScript"
 		$Folder "squirrel"
 		{
 			$File	".\squirrel\sqstdlib\sqstdaux.cpp"		\
-					".\squirrel\sqstdlib\sqstdblob.cpp"		\
-					".\squirrel\sqstdlib\sqstdio.cpp"		\
+					// @NMRiH - Felis: No blobs; ".\squirrel\sqstdlib\sqstdblob.cpp"		\
+					// @NMRiH - Felis: No stdio; ".\squirrel\sqstdlib\sqstdio.cpp"		\
 					".\squirrel\sqstdlib\sqstdmath.cpp"		\
 					".\squirrel\sqstdlib\sqstdrex.cpp"		\
-					".\squirrel\sqstdlib\sqstdstream.cpp"	\
+					// @NMRiH - Felis: No stream; ".\squirrel\sqstdlib\sqstdstream.cpp"	\
 					".\squirrel\sqstdlib\sqstdstring.cpp"	\
-					".\squirrel\sqstdlib\sqstdsystem.cpp"	\
+					// @NMRiH - Felis: No stdsystem; ".\squirrel\sqstdlib\sqstdsystem.cpp"	\
 					".\squirrel\squirrel\sqapi.cpp"			\
 					".\squirrel\squirrel\sqbaselib.cpp"		\
 					".\squirrel\squirrel\sqclass.cpp"		\

@@ -14,11 +14,15 @@
 #include "c_ai_basenpc.h"
 #else
 #include "ai_basenpc.h"
+#include "ai_senses.h"
 #include "globalstate.h"
 #endif
 
 // @NMRiH - Felis
 #include "particle_parse.h"
+#ifdef NMRIH_DLL
+#include "te_voice_command.h"
+#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -55,6 +59,17 @@ BEGIN_SCRIPTENUM( IN, "Button mask bindings" )
 	DEFINE_ENUMCONST_NAMED( IN_GRENADE1, "GRENADE1", "Button for +grenade1" )
 	DEFINE_ENUMCONST_NAMED( IN_GRENADE2, "GRENADE2", "Button for +grenade2" )
 	DEFINE_ENUMCONST_NAMED( IN_ATTACK3, "ATTACK3", "Button for +attack3" )
+
+	// @NMRiH - Felis: Our buttons
+	DEFINE_ENUMCONST_NAMED( IN_MAGLITE, "MAGLITE", "Button for +maglite" )
+	DEFINE_ENUMCONST_NAMED( IN_SHOVE, "SHOVE", "Button for +shove" )
+	DEFINE_ENUMCONST_NAMED( IN_COMPASS, "COMPASS", "Button for +compass" )
+	DEFINE_ENUMCONST_NAMED( IN_INVENTORY, "INVENTORY", "Button for +inventory" )
+	DEFINE_ENUMCONST_NAMED( IN_AMMOINV, "AMMOINV", "Button for +ammoinv" )
+	DEFINE_ENUMCONST_NAMED( IN_VOICECMD, "VOICECMD", "Button for +voicecmd" )
+	DEFINE_ENUMCONST_NAMED( IN_DROPWEAPON, "DROPWEAPON", "Button for +dropweapon" )
+	DEFINE_ENUMCONST_NAMED( IN_UNLOAD, "UNLOAD", "Button for +unload" )
+	DEFINE_ENUMCONST_NAMED( IN_SELECTFIRE, "SELECTFIRE", "Button for +selectfire" )
 
 END_SCRIPTENUM();
 
@@ -115,6 +130,29 @@ BEGIN_SCRIPTENUM( HidingSpot, "Visibility enum for nav mesh hiding spots" )
 	DEFINE_ENUMCONST_NAMED( HidingSpot::EXPOSED, "EXPOSED", "" )
 
 END_SCRIPTENUM();
+
+// @NMRiH - Felis: Voice commands
+#ifdef NMRIH_DLL
+BEGIN_SCRIPTENUM( VoiceCommand, "Player voice commands" )
+
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_AMMO, "Ammo", "\"Need ammo.\"" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_FOLLOW, "Follow", "\"Follow me.\"" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_HELP, "Help", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_NO, "No", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_STAY, "Stay", "\"Stop here.\"" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_THANKS, "Thanks", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_YES, "Yes", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_INCOMING, "Incoming", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_INJURED, "Injured", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_FIREINTHEHOLE, "FireInTheHole", "Grenade! (automatic)" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_TAUNT, "Taunt", "" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_PAIN, "Pain", "*pain* (automatic)" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_DEATH, "Death", "*death* (automatic)" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_BLEEDOUT, "BleedOut", "*bleeding pain* (automatic)" )
+	DEFINE_ENUMCONST_NAMED( VOICE_COMMAND_DROWN, "Drown", "*drown* (automatic)" )
+
+END_SCRIPTENUM();
+#endif
 
 //=============================================================================
 //=============================================================================
@@ -193,6 +231,14 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstant( g_pScriptVM, DMG_DIRECT, "Damage type used in damage information." );
 	ScriptRegisterConstant( g_pScriptVM, DMG_BUCKSHOT, "Damage type used in damage information." );
 
+	// @NMRiH - Felis: Our damage types
+	ScriptRegisterConstant( g_pScriptVM, DMG_NOINFECTTURN, "When set, infected players won't turn into zombies on death." );
+	ScriptRegisterConstant( g_pScriptVM, DMG_INFECT, "When set, this damage source can infect a player." );
+	ScriptRegisterConstant( g_pScriptVM, DMG_BLEEDOUT, "Indicates bleeding damage." );
+	ScriptRegisterConstant( g_pScriptVM, DMG_HEADSHOT, "Indicates a headshot." );
+	ScriptRegisterConstant( g_pScriptVM, DMG_STAGGER, "When set, this damage source will shove zombies." );
+	ScriptRegisterConstant( g_pScriptVM, DMG_WPNSPECIAL, "When set, this damage source will trigger \"trigger_weapon\" entities." );
+
 	// 
 	// Collision Groups
 	// 
@@ -216,6 +262,29 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_PUSHAWAY, "Collision group used in GetCollisionGroup(), etc." );
 	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC_ACTOR, "Collision group used in GetCollisionGroup(), etc." );
 	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC_SCRIPTED, "Collision group used in GetCollisionGroup(), etc." );
+
+	// @NMRiH - Felis: Our collision groups
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC2, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC3, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC4, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC5, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC6, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC7, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC8, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC9, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NPC10, "NPC greasing group." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_BARRICADE_OPEN, "For barricade points that have not been used." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_BARRICADE_USED, "For barricade points that have been used." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_BARRICADE_TRACE, "Trace used for finding barricade points." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_WEAPON_TRIGGER, "Used for trigger_weapon entities." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_NOCOLLIDE, "Generic 'No collision'." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_FALLING_ITEM, "For items that are falling (dropped weapons & ammo)." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_HEALTH_STATION, "Used for collision between health station + drop point." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_HEALTH_STATION_ACTIVE, "Used for collision between health station + drop point." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_SAFEZONE_SUPPLY, "Used for safe zone supplies." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_ITEM, "Collides with anything that isn't an NPC or a player." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_STUCK_WEAPON, "Used for non-colliding stuck weapons in zombies." );
+	ScriptRegisterConstant( g_pScriptVM, COLLISION_GROUP_MELEE_SWING, "Collision used for melee swing." );
 
 	// 
 	// Flags
@@ -376,7 +445,8 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstant( g_pScriptVM, ROPE_NO_GRAVITY, "Disable gravity on this rope. (for use in rope flags)" );
 	ScriptRegisterConstant( g_pScriptVM, ROPE_NUMFLAGS, "The number of rope flags recognized by the game." );
 
-	ScriptRegisterConstantNamed( g_pScriptVM, Vector( ROPE_GRAVITY ), "ROPE_GRAVITY", "Default rope gravity vector." );
+	static Vector vecRopeGravity( ROPE_GRAVITY );
+	ScriptRegisterConstantNamed( g_pScriptVM, vecRopeGravity, "ROPE_GRAVITY", "Default rope gravity vector." );
 
 	// 
 	// Sounds
@@ -446,8 +516,8 @@ void RegisterSharedScriptConstants()
 
 #ifdef GAME_DLL
 	// 
-	// AI Sounds
-	// (QueryHearSound hook can use these)
+	// AI Senses
+	// (NPC hooks can use these)
 	// 
 	ScriptRegisterConstant( g_pScriptVM, SOUND_NONE, "Sound type used in QueryHearSound hooks, etc." );
 	ScriptRegisterConstant( g_pScriptVM, SOUND_COMBAT, "Sound type used in QueryHearSound hooks, etc." );
@@ -501,6 +571,11 @@ void RegisterSharedScriptConstants()
 	ScriptRegisterConstantNamed( g_pScriptVM, (int)SOUNDENT_VOLUME_SHOTGUN, "SOUNDENT_VOLUME_SHOTGUN", "Sound volume preset for use in InsertAISound, etc." );
 	ScriptRegisterConstantNamed( g_pScriptVM, (int)SOUNDENT_VOLUME_PISTOL, "SOUNDENT_VOLUME_PISTOL", "Sound volume preset for use in InsertAISound, etc." );
 	ScriptRegisterConstantNamed( g_pScriptVM, (int)SOUNDENT_VOLUME_EMPTY, "SOUNDENT_VOLUME_PISTOL", "Sound volume preset for use in InsertAISound, etc." );
+
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_ALL, "SEEN_ALL", "All NPC sight arrays. Used in GetFirstSeenEntity, etc." );
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_HIGH_PRIORITY, "SEEN_HIGH_PRIORITY", "NPC sight array for players. Used in GetFirstSeenEntity, etc." );
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_NPCS, "SEEN_NPCS", "NPC sight array for other NPCs. Used in GetFirstSeenEntity, etc." );
+	ScriptRegisterConstantNamed( g_pScriptVM, (int)SEEN_MISC, "SEEN_MISC", "NPC sight array for objects. Used in GetFirstSeenEntity, etc." );
 
 	// 
 	// Capabilities
@@ -627,7 +702,7 @@ void RegisterSharedScriptConstants()
 	//ScriptRegisterConstant( g_pScriptVM, AISS_AUTO_PVS_AFTER_PVS, "" );
 	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAGS_NONE, "No sleep flags. (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
 	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAG_AUTO_PVS, "Indicates a NPC will sleep upon exiting PVS. (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
-	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAG_AUTO_PVS_AFTER_PVS, "Indicates a NPC will sleep upon exiting PVS after entering PVS for the first time(????\?) (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
+	ScriptRegisterConstant( g_pScriptVM, AI_SLEEP_FLAG_AUTO_PVS_AFTER_PVS, "Indicates a NPC will sleep upon exiting PVS after entering PVS for the first time(?) (NPC sleep flag used in Add/Remove/HasSleepFlags())" );
 
 	ScriptRegisterConstantNamed( g_pScriptVM, CAI_BaseNPC::SCRIPT_PLAYING, "SCRIPT_PLAYING", "Playing the action animation." );
 	ScriptRegisterConstantNamed( g_pScriptVM, CAI_BaseNPC::SCRIPT_WAIT, "SCRIPT_WAIT", "Waiting on everyone in the script to be ready. Plays the pre idle animation if there is one." );

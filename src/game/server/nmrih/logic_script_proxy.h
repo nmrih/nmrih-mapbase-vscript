@@ -69,6 +69,9 @@ protected:
 	// Returns both function name and parameters in a friendly format
 	static bool ParseFunctionString( const char *pszInput, char *pszNameBuffer, int nameBufSize, char *pszParamsBuffer, int paramsBufSize );
 
+	// Returns instance name if one exists (e.g. <instance>.foo(bar))
+	static bool ParseInstanceName( const char *pszIn, char *pszOut, int outSize );
+
 private:
 	string_t m_iszReturnValue;
 	int m_iReturnValue;

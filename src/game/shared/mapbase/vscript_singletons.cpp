@@ -34,6 +34,7 @@
 #include "filesystem.h"
 #include "igameevents.h"
 #include "engine/ivdebugoverlay.h"
+#include "icommandline.h"
 
 #ifdef CLIENT_DLL
 #include "IEffects.h"
@@ -65,6 +66,7 @@
 
 extern IScriptManager *scriptmanager;
 
+
 #ifdef GAME_DLL
 	extern void SendProxy_StringT_To_String(const SendProp*, const void*, const void*, DVariant*, int, int);
 	extern void SendProxy_UtlVectorLength(const SendProp*, const void*, const void*, DVariant*, int, int);
@@ -89,6 +91,22 @@ extern ISaveRestoreOps* GetStdStringDataOps();
 #ifdef GAME_DLL
 	#define UTLVECTOR_DATAOPS( fieldType, dataType )\
 		CUtlVectorDataopsInstantiator< fieldType >::GetDataOps( (CUtlVector< dataType >*)0 )
+	#define IS_EHANDLE_UTLVECTOR( td )\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CBaseEntity > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CBaseFlex > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CBaseAnimating > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CBaseCombatWeapon > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CBasePlayer > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CAI_BaseNPC > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CSceneEntity > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CSceneListManager > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CRagdollBoogie > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CFish > ) ||\
+		td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, CHandle< CVGuiScreen > )
+
+	class CSceneListManager;
+	class CRagdollBoogie;
+	class CFish;
 	#ifdef _DEBUG
 		class CStringTableSaveRestoreOps;
 		extern CStringTableSaveRestoreOps g_VguiScreenStringOps;
@@ -900,7 +918,7 @@ find_field:
 					return pInfo;
 				}
 #ifdef GAME_DLL
-				else if ( pField->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, EHANDLE ) )
+				else if ( IS_EHANDLE_UTLVECTOR( pField ) )
 				{
 					SetVarInfo();
 					pInfo->arraysize = ( 1 << VARINFO_ARRAYSIZE_BITS ) - 1; // dynamic, check on get
@@ -1242,17 +1260,20 @@ public:
 				return -1;
 		}
 
-		if ( pInfo->datatype == types::_VEC3 )
-			index /= 3;
+		unsigned int arraysize = pInfo->arraysize;
 
-		if ( index < 0 || (unsigned int)index >= pInfo->arraysize )
+		if ( pInfo->datatype == types::_VEC3 )
+			arraysize *= 3;
+
+		if ( index < 0 || (unsigned int)index >= arraysize )
 			return -1;
 
 		switch ( pInfo->datatype )
 		{
-		case types::_VEC3:
 		case types::_FLOAT:
 			return *(float*)((char*)pEnt + pInfo->GetOffset( index ));
+		case types::_VEC3:
+			return ((float*)((char*)pEnt + pInfo->GetOffset( index / 3 )))[ index % 3 ];
 #ifdef GAME_DLL
 		case types::_DAR_FLOAT:
 		{
@@ -1284,18 +1305,23 @@ public:
 				return;
 		}
 
-		if ( pInfo->datatype == types::_VEC3 )
-			index /= 3;
+		unsigned int arraysize = pInfo->arraysize;
 
-		if ( index < 0 || (unsigned int)index >= pInfo->arraysize )
+		if ( pInfo->datatype == types::_VEC3 )
+			arraysize *= 3;
+
+		if ( index < 0 || (unsigned int)index >= arraysize )
 			return;
 
 		switch ( pInfo->datatype )
 		{
-		case types::_VEC3:
 		case types::_FLOAT:
 			*(float*)((char*)pEnt + pInfo->GetOffset( index )) = value;
 			NetworkStateChanged( pEnt, pInfo->GetOffset( index ) );
+			break;
+		case types::_VEC3:
+			((float*)((char*)pEnt + pInfo->GetOffset( index / 3 )))[ index % 3 ] = value;
+			NetworkStateChanged( pEnt, pInfo->GetOffset( index / 3 ) );
 			break;
 #ifdef GAME_DLL
 		case types::_DAR_FLOAT:
@@ -2019,13 +2045,16 @@ private:
 				Print( "entity" );
 				break;
 			case FIELD_VMATRIX:
-				Print( "VMATRIX" );
+				Print( "VMatrix" );
 				break;
 			case FIELD_VMATRIX_WORLDSPACE:
-				Print( "VMATRIX_WORLDSPACE" );
+				Print( "VMatrix WORLDSPACE" );
 				break;
 			case FIELD_MATRIX3X4_WORLDSPACE:
-				Print( "MATRIX3X4_WORLDSPACE" );
+				Print( "matrix3x4 WORLDSPACE" );
+				break;
+			case FIELD_INTERVAL:
+				Print( "interval_t" );
 				break;
 			case FIELD_CUSTOM:
 				PrintCustomFieldType( pVar, td );
@@ -2079,7 +2108,7 @@ private:
 			Print("stdstring");
 		}
 #ifdef GAME_DLL
-		else if ( td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, EHANDLE ) )
+		else if ( IS_EHANDLE_UTLVECTOR( td ) )
 		{
 			CUtlVector< EHANDLE > &vec = *(CUtlVector< EHANDLE >*)pVar;
 			if ( vec.Base() )
@@ -2190,7 +2219,7 @@ private:
 			Print("%s", ((std::string*)pVar)->c_str());
 		}
 #ifdef GAME_DLL
-		else if ( td->pSaveRestoreOps == UTLVECTOR_DATAOPS( FIELD_EHANDLE, EHANDLE ) )
+		else if ( IS_EHANDLE_UTLVECTOR( td ) )
 		{
 			CUtlVector< EHANDLE > &vec = *(CUtlVector< EHANDLE >*)pVar;
 			if ( !vec.Base() )
@@ -2593,11 +2622,23 @@ END_SCRIPTDESC();
 //#define USE_OLD_EVENT_DESCRIPTORS 1
 */
 
+// @NMRiH - Felis
+int g_iNextScriptGameEventListenerIndex = 0;
+
 class CScriptGameEventListener : public IGameEventListener2, public CAutoGameSystem
 {
 public:
+	// @NMRiH - Felis
+	CScriptGameEventListener( const char *pszName )
+		: m_bActive( false )
+	/*
 	CScriptGameEventListener() : m_bActive(false)
+	*/
 	{
+		// @NMRiH - Felis
+		m_index = g_iNextScriptGameEventListenerIndex++;
+		m_pszName = V_strdup( pszName );
+
 #ifdef _DEBUG
 		m_nEventTick = 0;
 #endif
@@ -2606,7 +2647,13 @@ public:
 	~CScriptGameEventListener()
 	{
 		StopListeningForEvent();
+
+		// @NMRiH - Felis
+		delete[] m_pszName;
 	}
+
+	// @NMRiH - Felis
+	virtual const char *Name() { return m_pszName; }
 
 	int ListenToGameEvent( const char* szEvent, HSCRIPT hFunc, const char* szContext );
 	void StopListeningForEvent();
@@ -2620,7 +2667,11 @@ public:
 	void LevelShutdownPreEntity();
 
 private:
+	// @NMRiH - Felis: 64-bit compatibility
+	int m_index;
+	/*
 	//int m_index;
+	*/
 	HSCRIPT m_hCallback;
 	unsigned int m_iContextHash;
 	bool m_bActive;
@@ -2628,14 +2679,26 @@ private:
 	int m_nEventTick;
 #endif
 
+	// @NMRiH - Felis
+	char *m_pszName;
+
 	static StringHashFunctor Hash;
 	static inline unsigned int HashContext( const char* c ) { return c ? Hash(c) : 0; }
 
+	// @NMRiH - Felis: 64-bit compatibility
+	int GetIndex() const
+	{
+		// Previous implementation will always wrap over on int conversion
+		// Switch to incremental index instead of relying on pointer hacks
+		return m_index;
+	}
+	/*
 	inline int GetIndex()
 	{
 		Assert( sizeof(CScriptGameEventListener*) == sizeof(int) );
 		return reinterpret_cast<intptr_t>(this);
 	}
+	*/
 
 public:
 	enum // event data types, dependant on engine definitions
@@ -2795,7 +2858,7 @@ void CScriptGameEventListener::LoadEventsFromFile( const char *filename, const c
 	s_LoadedFiles.AddToTail( pKV );
 
 	// @NMRiH - Felis
-	ConColorMsg( 2, CON_COLOR_VSCRIPT, "CScriptGameEventListener::LoadEventsFromFile: Loaded [%s]%s (%i)\n", pathID, filename, count );
+	NMRiH_ConColorMsg( 2, CON_COLOR_VSCRIPT, "CScriptGameEventListener::LoadEventsFromFile: Loaded [%s]%s (%i)\n", pathID, filename, count );
 	/*
 	CGMsg( 2, CON_GROUP_VSCRIPT, "CScriptGameEventListener::LoadEventsFromFile: Loaded [%s]%s (%i)\n", pathID, filename, count );
 	*/
@@ -2826,7 +2889,9 @@ void CScriptGameEventListener::LevelShutdownPreEntity()
 
 void CScriptGameEventListener::FireGameEvent( IGameEvent *event )
 {
-	//m_nEventTick = gpGlobals->tickcount;
+#ifdef _DEBUG
+	m_nEventTick = gpGlobals->tickcount;
+#endif
 	ScriptVariant_t hTable;
 	g_pScriptVM->CreateTable( hTable );
 	WriteEventData( event, hTable );
@@ -2931,7 +2996,7 @@ int CScriptGameEventListener::ListenToGameEvent( const char* szEvent, HSCRIPT hF
 	if ( bValid )
 	{
 		m_iContextHash = HashContext( szContext );
-		m_hCallback = hFunc;
+		m_hCallback = g_pScriptVM->CopyObject( hFunc );
 		m_bActive = true;
 
 		s_Listeners.AddToTail( this );
@@ -2965,7 +3030,11 @@ void CScriptGameEventListener::StopListeningForEvent()
 #ifdef _DEBUG
 	// Event listeners are iterated forwards in the game event manager,
 	// removing while iterating will cause it to skip one listener.
-	// This could be prevented by writing a custom game event manager.
+	//
+	// Fix this in engine without altering any behaviour by
+	// changing event exeuction order to tail->head,
+	// changing listener removal to tail->head,
+	// changing listener addition to head
 	if ( m_nEventTick == gpGlobals->tickcount )
 	{
 		Warning("CScriptGameEventListener stopped in the same frame it was fired. This will break other event listeners!\n");
@@ -2978,6 +3047,19 @@ void CScriptGameEventListener::StopListeningForEvent()
 //-----------------------------------------------------------------------------
 bool CScriptGameEventListener::StopListeningToGameEvent( int listener )
 {
+	// @NMRiH - Felis: 64-bit compatibility
+	// This int -> ptr hack broke on x64, so just do a linear search
+	FOR_EACH_VEC( s_Listeners, i )
+	{
+		if ( s_Listeners[i]->GetIndex() == listener )
+		{
+			s_Listeners.FastRemove( i );
+			return true;
+		}
+	}
+
+	return false;
+	/*
 	CScriptGameEventListener *p = reinterpret_cast<CScriptGameEventListener*>(listener); // INT_TO_POINTER	
 
 	bool bRemoved = s_Listeners.FindAndFastRemove(p);
@@ -2987,6 +3069,7 @@ bool CScriptGameEventListener::StopListeningToGameEvent( int listener )
 	}
 
 	return bRemoved;
+	*/
 }
 
 //-----------------------------------------------------------------------------
@@ -3011,11 +3094,99 @@ void CScriptGameEventListener::StopListeningToAllGameEvents( const char* szConte
 
 static int ListenToGameEvent( const char* szEvent, HSCRIPT hFunc, const char* szContext )
 {
-	// @NMRiH - Felis: Use persistent handle
-	hFunc = hFunc ? g_pScriptVM->DuplicateObject( hFunc ) : NULL;
-
+	// @NMRiH - Felis
+	char szName[256];
+	V_sprintf_safe( szName, "CScriptGameEventListener_%s_%s", szEvent, szContext );
+	CScriptGameEventListener *p = new CScriptGameEventListener( szName );
+	/*
 	CScriptGameEventListener *p = new CScriptGameEventListener();
+	*/
 	return p->ListenToGameEvent( szEvent, hFunc, szContext );
+}
+
+// @NMRiH - Felis: Disallow certain game events
+static const char *g_pszScriptGameEventExcludeList[]
+{
+	// Cheap achievement unlocks
+	"achievement_earned",
+	"achievement_event",
+	"user_data_downloaded",
+	"map_complete",
+	"player_extracted",
+	"entity_killed",
+	"watermelon_rescue",
+
+	// Challenge stuff
+	"challenge_start",
+	"challenge_end",
+	"challenge_checkpoint",
+	"challenge_invalid",
+
+	// False name change
+	"player_changename",
+
+	// False team join
+	"player_team",
+
+	// False chat (UI doesn't use this, but other listeners may)
+	"player_chat",
+
+	// False player state
+	"player_active",
+	"player_join",
+	"player_leave",
+	"player_welcome",
+	"player_join_game",
+	"player_disconnect",
+	"player_spawn",
+
+	// False game state
+	"state_change",
+	"nmrih_practice_ending",
+	"nmrih_reset_map",
+	"nmrih_round_begin",
+	"game_restarting",
+	"objective_complete",
+	"objective_fail",
+	"game_init",
+	"game_newmap",
+	"game_start",
+	"game_end",
+	"round_start",
+	"round_end",
+
+	// Client-side events
+	"spec_target_updated",
+	"demo_bookmark",
+
+	// Vote stuff
+	"vote_ended",
+	"vote_started",
+	"vote_changed",
+	"vote_passed",
+	"vote_failed",
+	"vote_cast",
+	"vote_options",
+};
+static CUtlDict<bool> g_dictScriptProtectedGameEvents;
+static bool IsGameEventScriptProtected( const char *pszName )
+{
+	// Build list for exclusions on first call
+	if ( g_dictScriptProtectedGameEvents.Count() == 0 )
+	{
+		for ( unsigned int i = 0; i < V_ARRAYSIZE( g_pszScriptGameEventExcludeList ); ++i )
+		{
+			g_dictScriptProtectedGameEvents.Insert( g_pszScriptGameEventExcludeList[i], true );
+		}
+	}
+
+	const int idx = g_dictScriptProtectedGameEvents.Find( pszName );
+	if ( idx != g_dictScriptProtectedGameEvents.InvalidIndex() )
+	{
+		return g_dictScriptProtectedGameEvents[idx];
+	}
+
+	return false;
 }
 
 //-----------------------------------------------------------------------------
@@ -3023,6 +3194,13 @@ static int ListenToGameEvent( const char* szEvent, HSCRIPT hFunc, const char* sz
 //-----------------------------------------------------------------------------
 static void FireGameEvent( const char* szEvent, HSCRIPT hTable )
 {
+	// @NMRiH - Felis
+	if ( IsGameEventScriptProtected( szEvent ) )
+	{
+		Warning( "Script error! Can't fire protected game event \"%s\"\n", szEvent );
+		return;
+	}
+
 	IGameEvent *event = gameeventmanager->CreateEvent( szEvent );
 	if ( event )
 	{
@@ -3056,6 +3234,13 @@ static void FireGameEvent( const char* szEvent, HSCRIPT hTable )
 //-----------------------------------------------------------------------------
 static void FireGameEventLocal( const char* szEvent, HSCRIPT hTable )
 {
+	// @NMRiH - Felis
+	if ( IsGameEventScriptProtected( szEvent ) )
+	{
+		Warning( "Script error! Can't fire protected game event \"%s\"\n", szEvent );
+		return;
+	}
+
 	IGameEvent *event = gameeventmanager->CreateEvent( szEvent );
 	if ( event )
 	{
@@ -3269,6 +3454,11 @@ class CScriptReadWriteFile : public CAutoGameSystem
 	// A singleton class with all static members is used to be able to free the read string on level shutdown,
 	// and register script funcs directly. Same reason applies to CScriptSaveRestoreUtil
 public:
+	// @NMRiH - Felis
+	CScriptReadWriteFile( const char *pszName )
+		: CAutoGameSystem( pszName )
+	{}
+
 	// @NMRiH - Felis: Disabled
 #if 0
 	static bool FileWrite( const char *szFile, const char *szInput );
@@ -3278,7 +3468,7 @@ public:
 
 	// NOTE: These two functions are new with Mapbase and have no Valve equivalent
 	static bool KeyValuesWrite( const char *szFile, HSCRIPT hInput );
-	static HSCRIPT KeyValuesRead( const char *szFile );
+	static HSCRIPT_RC KeyValuesRead( const char *szFile );
 
 	// @NMRiH - Felis: 'Safe' interface that supports only one file per map
 	static HSCRIPT ReadMapKeyValues();
@@ -3296,7 +3486,11 @@ public:
 private:
 	static char *m_pszReturnReadFile;
 
+	// @NMRiH - Felis
+} g_ScriptReadWrite( "CScriptReadWriteFile" );
+/*
 } g_ScriptReadWrite;
+*/
 
 char *CScriptReadWriteFile::m_pszReturnReadFile = NULL;
 
@@ -3345,7 +3539,7 @@ const char *CScriptReadWriteFile::FileRead( const char *szFile )
 	char pszFullName[MAX_PATH];
 	V_snprintf( pszFullName, sizeof(pszFullName), SCRIPT_RW_FULL_PATH_FMT, szFile );
 
-	if ( !V_RemoveDotSlashes( pszFullName, CORRECT_PATH_SEPARATOR, true ) )
+	if ( !CommandLine()->FindParm( "-script_dotslash_read" ) && !V_RemoveDotSlashes( pszFullName, CORRECT_PATH_SEPARATOR, true ) )
 	{
 		DevWarning( 2, "Invalid file location : %s\n", szFile );
 		return NULL;
@@ -3394,7 +3588,7 @@ bool CScriptReadWriteFile::FileExists( const char *szFile )
 	char pszFullName[MAX_PATH];
 	V_snprintf( pszFullName, sizeof(pszFullName), SCRIPT_RW_FULL_PATH_FMT, szFile );
 
-	if ( !V_RemoveDotSlashes( pszFullName, CORRECT_PATH_SEPARATOR, true ) )
+	if ( !CommandLine()->FindParm( "-script_dotslash_read" ) && !V_RemoveDotSlashes( pszFullName, CORRECT_PATH_SEPARATOR, true ) )
 	{
 		DevWarning( 2, "Invalid file location : %s\n", szFile );
 		return NULL;
@@ -3471,18 +3665,34 @@ bool CScriptReadWriteFile::KeyValuesWrite( const char *szFile, HSCRIPT hInput )
 //-----------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------
-HSCRIPT CScriptReadWriteFile::KeyValuesRead( const char *szFile )
+HSCRIPT_RC CScriptReadWriteFile::KeyValuesRead( const char *szFile )
 {
 	char pszFullName[MAX_PATH];
 	V_snprintf( pszFullName, sizeof(pszFullName), SCRIPT_RW_FULL_PATH_FMT, szFile );
 
-	if ( !V_RemoveDotSlashes( pszFullName, CORRECT_PATH_SEPARATOR, true ) )
+	if ( !CommandLine()->FindParm( "-script_dotslash_read" ) && !V_RemoveDotSlashes( pszFullName, CORRECT_PATH_SEPARATOR, true ) )
 	{
 		DevWarning( 2, "Invalid file location : %s\n", szFile );
 		return NULL;
 	}
 
+	// @NMRiH - Felis: Allow map to load keyvalues from paklump
+	const char *pszPathID = "MOD";
+	const char *pszPathIDList[] = { "BSP", "MOD" };
+	for ( unsigned int i = 0; i < V_ARRAYSIZE( pszPathIDList ); ++i )
+	{
+		if ( g_pFullFileSystem->FileExists( pszFullName, pszPathIDList[i] ) )
+		{
+			pszPathID = pszPathIDList[i];
+			break;
+		}
+	}
+
+	// @NMRiH - Felis
+	const unsigned int size = g_pFullFileSystem->Size( pszFullName, pszPathID );
+	/*
 	unsigned int size = g_pFullFileSystem->Size( pszFullName, SCRIPT_RW_PATH_ID );
+	*/
 	if ( size >= SCRIPT_MAX_FILE_READ_SIZE )
 	{
 		DevWarning( 2, "File '%s' (from '%s') is too large for a ScriptKeyValuesRead ( %s / %u bytes )\n", pszFullName, szFile, V_pretifymem(size,2,true), SCRIPT_MAX_FILE_READ_SIZE );
@@ -3490,13 +3700,18 @@ HSCRIPT CScriptReadWriteFile::KeyValuesRead( const char *szFile )
 	}
 
 	KeyValues *pKV = new KeyValues( szFile );
+
+	// @NMRiH - Felis
+	if ( !pKV->LoadFromFile( g_pFullFileSystem, pszFullName, pszPathID ) )
+	/*
 	if ( !pKV->LoadFromFile( g_pFullFileSystem, pszFullName, SCRIPT_RW_PATH_ID ) )
+	*/
 	{
 		pKV->deleteThis();
 		return NULL;
 	}
 
-	HSCRIPT hScript = scriptmanager->CreateScriptKeyValues( g_pScriptVM, pKV, true ); // bAllowDestruct is supposed to automatically remove the involved KV
+	HSCRIPT hScript = scriptmanager->CreateScriptKeyValues( g_pScriptVM, pKV );
 
 	return hScript;
 }
@@ -3555,9 +3770,11 @@ CNetMsgScriptHelper *g_ScriptNetMsg = &scriptnetmsg;
 
 #ifdef _DEBUG
 #ifdef GAME_DLL
-#define DebugNetMsg( l, ... ) do { extern ConVar developer; if (developer.GetInt() >= l) ConColorMsg( Color(100, 225, 255, 255), __VA_ARGS__ ); } while (0);
+ConVar script_net_debug("script_net_debug", "0");
+#define DebugNetMsg( l, ... ) do { if (script_net_debug.GetInt() >= l) ConColorMsg( Color(100, 225, 255, 255), __VA_ARGS__ ); } while (0);
 #else
-#define DebugNetMsg( l, ... ) do { extern ConVar developer; if (developer.GetInt() >= l) ConColorMsg( Color(100, 225, 175, 255), __VA_ARGS__ ); } while (0);
+ConVar script_net_debug("script_net_debug_client", "0");
+#define DebugNetMsg( l, ... ) do { if (script_net_debug.GetInt() >= l) ConColorMsg( Color(100, 225, 175, 255), __VA_ARGS__ ); } while (0);
 #endif
 #define DebugWarning(...) Warning( __VA_ARGS__ )
 #else
@@ -3614,8 +3831,7 @@ static const char *HasNetMsgCollision( int hash, const char *ignore )
 
 inline int CNetMsgScriptHelper::Hash( const char *key )
 {
-	int hash = HashStringCaseless( key );
-	Assert( hash < (1 << SCRIPT_NETMSG_HEADER_BITS) );
+	int hash = CaselessStringHashFunctor()( key );
 	return hash;
 }
 
@@ -3706,13 +3922,13 @@ void CNetMsgScriptHelper::ReceiveMessage( bf_read &msg )
 	m_MsgIn.StartReading( msg.m_pData, msg.m_nDataBytes );
 #endif
 
-	DebugNetMsg( 2, DLL_LOC_STR " %s()", __FUNCTION__ );
+	DebugNetMsg( 2, DLL_LOC_STR " %s()\n", __FUNCTION__ );
 
 	// Don't do anything if there's no VM here. This can happen if a message from the server goes to a VM-less client, or vice versa.
 	if ( !g_pScriptVM )
 	{
 		// @NMRiH - Felis
-		ConColorMsg( 0, CON_COLOR_VSCRIPT, "%s CNetMsgScriptHelper: No VM on receiving side\n", DLL_LOC_STR );
+		NMRiH_ConColorMsg( 0, CON_COLOR_VSCRIPT, "%s CNetMsgScriptHelper: No VM on receiving side\n", DLL_LOC_STR );
 		/*
 		CGWarning( 0, CON_GROUP_VSCRIPT, DLL_LOC_STR " CNetMsgScriptHelper: No VM on receiving side\n" );
 		*/
@@ -3725,7 +3941,7 @@ void CNetMsgScriptHelper::ReceiveMessage( bf_read &msg )
 	while ( count-- )
 #endif
 	{
-		int hash = m_MsgIn_()ReadWord();
+		int hash = m_MsgIn_()ReadUBitLong( SCRIPT_NETMSG_HEADER_BITS );
 
 #ifdef _DEBUG
 		const char *msgName = GetNetMsgName( hash );
@@ -3794,7 +4010,7 @@ void CNetMsgScriptHelper::Start( const char *msg )
 	Reset();
 #endif
 
-	m_MsgOut.WriteWord( Hash( msg ) );
+	m_MsgOut.WriteUBitLong( Hash( msg ), SCRIPT_NETMSG_HEADER_BITS );
 }
 
 #ifdef GAME_DLL
@@ -4203,7 +4419,7 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CNetMsgScriptHelper, "CNetMsg", SCRIPT_SINGLETON "N
 	DEFINE_SCRIPTFUNC( Receive, "Set custom network message callback" )
 	DEFINE_SCRIPTFUNC_NAMED( Receive, "Recieve", SCRIPT_HIDE ) // This was a typo until v6.3
 #ifdef GAME_DLL
-	DEFINE_SCRIPTFUNC( Send, "Send a custom network message from the server to the client (max 252 bytes)" )
+	DEFINE_SCRIPTFUNC( Send, "Send a custom network message from the server to the client (max 251 bytes)" )
 #else
 	DEFINE_SCRIPTFUNC( Send, "Send a custom network message from the client to the server (max 2044 bytes)" )
 #endif
@@ -4250,6 +4466,8 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CNetMsgScriptHelper, "CNetMsg", SCRIPT_SINGLETON "N
 
 END_SCRIPTDESC();
 #endif
+
+
 
 // @NMRiH - Felis
 #define RETURN_IF_CANNOT_DRAW_OVERLAY\
@@ -4686,9 +4904,9 @@ public:
 	CScriptConCommand( const char *name, HSCRIPT fn, const char *helpString, int flags, ConCommand *pLinked = NULL )
 		: BaseClass( name, this, helpString, flags, 0 ),
 		m_pLinked(pLinked),
-		m_hCallback(fn),
 		m_hCompletionCallback(NULL)
 	{
+		m_hCallback = g_pScriptVM->CopyObject( fn );
 		m_nCmdNameLen = V_strlen(name) + 1;
 		Assert( m_nCmdNameLen - 1 <= 128 );
 
@@ -4789,7 +5007,7 @@ public:
 
 			BaseClass::m_pCommandCompletionCallback = this;
 			BaseClass::m_bHasCompletionCallback = true;
-			m_hCompletionCallback = fn;
+			m_hCompletionCallback = g_pScriptVM->CopyObject( fn );
 		}
 		else
 		{
@@ -4808,7 +5026,8 @@ public:
 
 			if ( m_hCallback )
 				g_pScriptVM->ReleaseScript( m_hCallback );
-			m_hCallback = fn;
+
+			m_hCallback = g_pScriptVM->CopyObject( fn );
 		}
 		else
 		{
@@ -4878,7 +5097,7 @@ public:
 
 		if (fn)
 		{
-			m_hCallback = fn;
+			m_hCallback = g_pScriptVM->CopyObject( fn );
 			BaseClass::InstallChangeCallback( (FnChangeCallback_t)ScriptConVarCallback );
 		}
 		else
@@ -5021,6 +5240,11 @@ class CScriptConvarAccessor : public CAutoGameSystem
 	};
 
 public:
+	// @NMRiH - Felis
+	CScriptConvarAccessor( const char *pszName )
+		: CAutoGameSystem( pszName )
+	{}
+
 	// @NMRiH - Felis: Lifted from utlcommon.h
 	// FNV-1A caseless string hash
 	static unsigned int Hash( const char *psz )
@@ -5255,13 +5479,19 @@ public:
 	}
 	*/
 
+// @NMRiH - Felis
+} g_ScriptConvarAccessor( "CScriptConvarAccessor" );
+/*
 } g_ScriptConvarAccessor;
+*/
 
 
 void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const char *helpString, int flags )
 {
-	// @NMRiH - Felis: Use persistent handle
-	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
+#if CLIENT_DLL
+	// FIXME: This crashes in engine when used as a hook (dispatched from CScriptConCommand::CommandCallback())
+	Assert( V_stricmp( name, "load" ) != 0 );
+#endif
 
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
@@ -5296,8 +5526,6 @@ void CScriptConvarAccessor::RegisterCommand( const char *name, HSCRIPT fn, const
 #ifndef CLIENT_DLL
 void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, const char *helpString, const int flags )
 {
-	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
-
 	unsigned int hash = Hash( name );
 	int idx = g_ScriptConCommands.Find( hash );
 	if ( idx == g_ScriptConCommands.InvalidIndex() )
@@ -5326,9 +5554,6 @@ void CScriptConvarAccessor::RegisterAdminCommand( const char *name, HSCRIPT fn, 
 
 void CScriptConvarAccessor::SetCompletionCallback( const char *name, HSCRIPT fn )
 {
-	// @NMRiH - Felis: Use persistent handle
-	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
-
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConCommands.Find(hash);
 	if ( idx != g_ScriptConCommands.InvalidIndex() )
@@ -5371,9 +5596,6 @@ void CScriptConvarAccessor::RegisterConvar( const char *name, const char *pDefau
 
 void CScriptConvarAccessor::SetChangeCallback( const char *name, HSCRIPT fn )
 {
-	// @NMRiH - Felis: Use persistent handle
-	fn = fn ? g_pScriptVM->DuplicateObject( fn ) : NULL;
-
 	unsigned int hash = Hash(name);
 	int idx = g_ScriptConVars.Find(hash);
 	if ( idx != g_ScriptConVars.InvalidIndex() )
@@ -5477,12 +5699,18 @@ bool CScriptConvarAccessor::Init()
 	AddOverridable( "say" );
 	AddOverridable( "say_team" );
 
+
 	// @NMRiH - Felis: Replaced by ruleset system
 	/*
 	AddBlockedConVar( "con_enable" );
 	AddBlockedConVar( "cl_allowdownload" );
 	AddBlockedConVar( "cl_allowupload" );
 	AddBlockedConVar( "cl_downloadfilter" );
+#ifdef GAME_DLL
+	AddBlockedConVar( "script_connect_debugger_on_mapspawn" );
+#else
+	AddBlockedConVar( "script_connect_debugger_on_mapspawn_client" );
+#endif
 	*/
 
 	return true;
@@ -5821,6 +6049,31 @@ public:
 
 		return ret;
 	}
+	const char *GetCurrentBetaName()
+	{
+		if ( !steamapicontext || !steamapicontext->SteamApps() )
+			return NULL;
+
+		static char ret[16];
+		steamapicontext->SteamApps()->GetCurrentBetaName( ret, sizeof( ret ) );
+		return ret;
+	}
+#if 0
+	bool IsSubscribedApp( int nAppID )
+	{
+		if ( !steamapicontext || !steamapicontext->SteamApps() )
+			return false;
+
+		return steamapicontext->SteamApps()->BIsSubscribedApp( nAppID );
+	}
+#endif
+	bool IsAppInstalled( int nAppID )
+	{
+		if ( !steamapicontext || !steamapicontext->SteamApps() )
+			return false;
+
+		return steamapicontext->SteamApps()->BIsAppInstalled( nAppID );
+	}
 
 } g_ScriptSteamAPI;
 
@@ -5831,6 +6084,9 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptSteamAPI, "CSteamAPI", SCRIPT_SINGLETON "" )
 	DEFINE_SCRIPTFUNC( GetCurrentBatteryPower, "Return the amount of battery power left in the current system in % [0..100], 255 for being on AC power" )
 	//DEFINE_SCRIPTFUNC( GetIPCountry, "Returns the 2 digit ISO 3166-1-alpha-2 format country code this client is running in (as looked up via an IP-to-location database)" )
 	DEFINE_SCRIPTFUNC( GetCurrentGameLanguage, "Gets the current language that the user has set as API language code. This falls back to the Steam UI language if the user hasn't explicitly picked a language for the title." )
+	DEFINE_SCRIPTFUNC( GetCurrentBetaName, "Gets the name of the user's current beta branch. In Source SDK Base 2013 Singleplayer, this will usually return 'upcoming'." )
+	//DEFINE_SCRIPTFUNC( IsSubscribedApp, "Returns true if the user is subscribed to the specified app ID." )
+	DEFINE_SCRIPTFUNC( IsAppInstalled, "Returns true if the user has the specified app ID installed on their computer." )
 END_SCRIPTDESC();
 #endif // !NO_STEAM
 
@@ -5850,15 +6106,22 @@ public:
 	{
 		m_CachedID = pSource->GetID();
 		m_hScriptInstance = g_pScriptVM->RegisterInstance( this );
+		m_pCachedHidingSpotTables = NULL;
 	}
 
 	~CScriptNavArea()
 	{
 		if ( m_hScriptInstance && g_pScriptVM )
 		{
-			FOR_EACH_VEC( m_CachedHidingSpotTables, i )
+			if ( m_pCachedHidingSpotTables )
 			{
-				g_pScriptVM->ReleaseScript( m_CachedHidingSpotTables[i] );
+				for ( int i = 0; i < m_pCachedHidingSpotTables->Count(); ++i )
+				{
+					g_pScriptVM->ReleaseScript( m_pCachedHidingSpotTables->Element( i ) );
+				}
+
+				delete m_pCachedHidingSpotTables;
+				m_pCachedHidingSpotTables = NULL;
 			}
 
 			g_pScriptVM->RemoveInstance( m_hScriptInstance );
@@ -5955,14 +6218,14 @@ public:
 			return;
 		}
 
-		if ( !m_CachedHidingSpotTables.IsEmpty() )
+		if ( m_pCachedHidingSpotTables && !m_pCachedHidingSpotTables->IsEmpty() )
 		{
 			// Use cached spots
-			FOR_EACH_VEC( m_CachedHidingSpotTables, i )
+			for ( int i = 0; i < m_pCachedHidingSpotTables->Count(); ++i )
 			{
 				char szNestedTableName[64];
 				V_sprintf_safe( szNestedTableName, "spot%d", i );
-				g_pScriptVM->SetValue( hTable, szNestedTableName, m_CachedHidingSpotTables[i] );
+				g_pScriptVM->SetValue( hTable, szNestedTableName, m_pCachedHidingSpotTables->Element( i ) );
 			}
 
 			return;
@@ -5973,6 +6236,11 @@ public:
 		// Create nested tables containing hiding spot properties
 		// These are cached and released by area script instance, so we don't have to care about lifespan
 		// Hiding spots aren't computed during runtime (outside generation), so we can safely cache those
+		if ( !m_pCachedHidingSpotTables )
+		{
+			m_pCachedHidingSpotTables = new CUtlVector<ScriptVariant_t>;
+		}
+
 		for ( int i = 0; i < pHidingSpots->Count(); ++i )
 		{
 			const HidingSpot *pSpot = pHidingSpots->Element( i );
@@ -5993,7 +6261,7 @@ public:
 			g_pScriptVM->SetValue( hNestedTable, "area", ToAreaHandle( pSpot->GetArea() ) );
 			g_pScriptVM->SetValue( hNestedTable, "flags", pSpot->GetFlags() );
 
-			m_CachedHidingSpotTables.AddToTail( hNestedTable );
+			m_pCachedHidingSpotTables->AddToTail( hNestedTable );
 		}
 	}
 
@@ -6188,10 +6456,19 @@ protected:
 private:
 	unsigned int m_CachedID;
 	HSCRIPT m_hScriptInstance;
-	CUtlVector<ScriptVariant_t> m_CachedHidingSpotTables;
+	CUtlVector<ScriptVariant_t> *m_pCachedHidingSpotTables;
 };
 
-BEGIN_SCRIPTDESC_ROOT( CScriptNavArea, "Rectangular region defining a walkable area in the environment." )
+bool CScriptNavAreaInstanceHelper::ToString( void *p, char *pBuf, const int bufSize )
+{
+	const CScriptNavArea *pArea = static_cast<CScriptNavArea *>( p );
+	V_snprintf( pBuf, bufSize, "([%u] Area)", pArea->GetID() );
+	return true;
+}
+
+CScriptNavAreaInstanceHelper g_ScriptNavAreaInstanceHelper;
+
+BEGIN_SCRIPTDESC_ROOT_WITH_HELPER( CScriptNavArea, "Rectangular region defining a walkable area in the environment.", &g_ScriptNavAreaInstanceHelper )
 	DEFINE_SCRIPTFUNC( AddIncomingConnection, "The area 'source' is connected to us along our 'incomingEdgeDir' edge." )
 	DEFINE_SCRIPTFUNC( ComputeClosestPointInPortal, "Compute closest point within the 'portal' between to adjacent areas." )
 	DEFINE_SCRIPTFUNC( ComputeDirection, "Returns direction from this area to the given point." )
@@ -6200,7 +6477,9 @@ BEGIN_SCRIPTDESC_ROOT( CScriptNavArea, "Rectangular region defining a walkable a
 	DEFINE_SCRIPTFUNC( ContainsOrigin, "Returns true if given point is on or above this area, but no others" )
 	DEFINE_SCRIPTFUNC( Disconnect, "Disconnect this area from given area." )
 	DEFINE_SCRIPTFUNC( FindRandomSpot, "" ) // NOTE: NMRiH specific method!
-	DEFINE_SCRIPTFUNC( GetAdjacentArea, "Returns number of connected areas in given direction." )
+	DEFINE_SCRIPTFUNC( GetAdjacentArea, "Returns the n'th adjacent area in the given direction." )
+	DEFINE_SCRIPTFUNC( GetAdjacentAreas, "Fills table with connected adjacent areas in the given direction." )
+	DEFINE_SCRIPTFUNC( GetAdjacentCount, "Returns number of connected areas in given direction." )
 	DEFINE_SCRIPTFUNC( GetAttributes, "" )
 	DEFINE_SCRIPTFUNC( GetAvoidanceObstacleHeight, "Returns the maximum height of the obstruction above the ground." )
 	DEFINE_SCRIPTFUNC( GetCenter, "" )
@@ -6297,7 +6576,7 @@ HSCRIPT CScriptNavAreaCollector::GetScriptInstance( const CNavArea *pArea )
 		return NULL;
 	}
 
-	const CScriptNavArea *pFound = Get( pArea );
+	const CScriptNavArea *pFound = GetByID( pArea->GetID() );
 
 	if ( !pFound )
 	{

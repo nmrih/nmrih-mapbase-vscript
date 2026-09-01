@@ -19,18 +19,30 @@
     return 1; \
 }
 
+// @NMRiH - Felis
+static SQInteger g_randNext = 1;
+
 static SQInteger math_srand(HSQUIRRELVM v)
 {
     SQInteger i;
     if(SQ_FAILED(sq_getinteger(v,2,&i)))
         return sq_throwerror(v,_SC("invalid param"));
+
+    // @NMRiH - Felis
+    g_randNext = i;
+    /*
     srand((unsigned int)i);
+    */
     return 0;
 }
 
 static SQInteger math_rand(HSQUIRRELVM v)
 {
+    // @NMRiH - Felis: Consistent rand() across platforms (MSVC-style, expects RAND_MAX == 0x7fff)
+    sq_pushinteger(v, (((g_randNext = g_randNext * 214013L + 2531011L) >> 16) & 0x7fff));
+    /*
     sq_pushinteger(v,rand());
+    */
     return 1;
 }
 
@@ -98,7 +110,11 @@ SQRESULT sqstd_register_mathlib(HSQUIRRELVM v)
         i++;
     }
     sq_pushstring(v,_SC("RAND_MAX"),-1);
+    // @NMRiH - Felis: Consistent RAND_MAX, MSVC uses 0x7fff, while GCC uses MAX_INT
+    sq_pushinteger(v,0x7fff); // VALVE_RAND_MAX
+    /*
     sq_pushinteger(v,RAND_MAX);
+    */
     sq_newslot(v,-3,SQFalse);
     sq_pushstring(v,_SC("PI"),-1);
     sq_pushfloat(v,(SQFloat)M_PI);

@@ -1,4 +1,4 @@
-//========== Copyright Â© 2008, Valve Corporation, All rights reserved. ========
+//========== Copyright © 2008, Valve Corporation, All rights reserved. ========
 //
 // Purpose: VScript
 //
@@ -140,7 +140,39 @@ class KeyValues;
 DECLARE_POINTER_HANDLE( HSCRIPT );
 #define INVALID_HSCRIPT ((HSCRIPT)-1)
 
+// Reference counted HSCRIPT return value
+//
+// This is an alias for HSCRIPT that is converted back to HSCRIPT on return
+// from vscript function bindings; it signals the vscript implementation to
+// release its hold and let the script control the lifetime
+// of the registered instance.
+struct HSCRIPT_RC
+{
+	HSCRIPT val;
+	HSCRIPT_RC( HSCRIPT v ) { val = v; }
+	HSCRIPT operator=( HSCRIPT v ) { val = v; return val; }
+	operator HSCRIPT() { return val; }
+};
+
+// @NMRiH - Felis: TF2 SDK compatibility
+inline bool IsValid( HSCRIPT hScript )
+{
+	return ( hScript != NULL && hScript != INVALID_HSCRIPT );
+}
+
+// @NMRiH - Felis: 64-bit compatibility
+#ifdef PLATFORM_64BITS
+#ifdef _MSC_VER
+typedef __int64 HScriptRaw;
+#else
+typedef long long HScriptRaw;
+#endif
+#else
 typedef unsigned int HScriptRaw;
+#endif
+/*
+typedef unsigned int HScriptRaw;
+*/
 
 enum ScriptLanguage_t
 {
@@ -159,7 +191,7 @@ public:
 	virtual IScriptVM *CreateVM( ScriptLanguage_t language = SL_DEFAULT ) = 0;
 	virtual void DestroyVM( IScriptVM * ) = 0;
 
-	virtual HSCRIPT CreateScriptKeyValues( IScriptVM *pVM, KeyValues *pKV, bool bAllowDestruct ) = 0;
+	virtual HSCRIPT CreateScriptKeyValues( IScriptVM *pVM, KeyValues *pKV, bool bBorrow = false ) = 0;
 	virtual KeyValues *GetKeyValuesFromScriptKV( IScriptVM *pVM, HSCRIPT hSKV ) = 0;
 };
 
@@ -173,6 +205,7 @@ enum ExtendedFieldType
 	FIELD_CSTRING,
 	FIELD_HSCRIPT,
 	FIELD_VARIANT,
+	FIELD_HSCRIPT_RC,
 };
 
 typedef int ScriptDataType_t;
@@ -192,6 +225,7 @@ DECLARE_DEDUCE_FIELDTYPE( FIELD_BOOLEAN,	bool );
 DECLARE_DEDUCE_FIELDTYPE( FIELD_CHARACTER,	char );
 DECLARE_DEDUCE_FIELDTYPE( FIELD_HSCRIPT,	HSCRIPT );
 DECLARE_DEDUCE_FIELDTYPE( FIELD_VARIANT,	ScriptVariant_t );
+DECLARE_DEDUCE_FIELDTYPE( FIELD_HSCRIPT_RC,	HSCRIPT_RC );
 DECLARE_DEDUCE_FIELDTYPE( FIELD_VECTOR,		QAngle );
 DECLARE_DEDUCE_FIELDTYPE( FIELD_VECTOR,		const QAngle& );
 
@@ -237,6 +271,8 @@ inline const char * ScriptFieldTypeName( int16 eType)
 
 //---------------------------------------------------------
 
+struct ScriptClassDesc_t;
+
 struct ScriptFuncDescriptor_t
 {
 	ScriptFuncDescriptor_t()
@@ -244,11 +280,13 @@ struct ScriptFuncDescriptor_t
 		m_pszFunction = NULL;
 		m_ReturnType = FIELD_TYPEUNKNOWN;
 		m_pszDescription = NULL;
+		m_pScriptClassDesc = NULL;
 	}
 
 	const char *m_pszScriptName;
 	const char *m_pszFunction;
 	const char *m_pszDescription;
+	ScriptClassDesc_t *m_pScriptClassDesc;
 	ScriptDataType_t m_ReturnType;
 	CUtlVector<ScriptDataType_t> m_Parameters;
 };
@@ -288,15 +326,33 @@ struct ScriptMemberDesc_t
 enum ScriptFuncBindingFlags_t
 {
 	SF_MEMBER_FUNC	= 0x01,
+	SF_REFCOUNTED_RET	= 0x02,
 };
 
-typedef bool (*ScriptBindingFunc_t)( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn );
+union ScriptVariantTemporaryStorage_t;
+
+// @NMRiH - Felis: Replaced
+struct ScriptFunctionBindingStorageType_t
+{
+	intp m_ptr;
+	intp m_delta;
+	intp m_vtordisp;
+	intp m_vtable_index;
+};
+typedef bool (*ScriptBindingFunc_t)( ScriptFunctionBindingStorageType_t pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage );
+/*
+typedef bool (*ScriptBindingFunc_t)( void *pFunction, void *pContext, ScriptVariant_t *pArguments, int nArguments, ScriptVariant_t *pReturn, ScriptVariantTemporaryStorage_t &temporaryReturnStorage );
+*/
 
 struct ScriptFunctionBinding_t
 {
 	ScriptFuncDescriptor_t	m_desc;
 	ScriptBindingFunc_t		m_pfnBinding;
+	// @NMRiH - Felis: Replaced
+	ScriptFunctionBindingStorageType_t m_pFunction;
+	/*
 	void *					m_pFunction;
+	*/
 	unsigned				m_flags;
 };
 
@@ -310,11 +366,6 @@ public:
 
 	virtual bool Get( void *p, const char *pszKey, ScriptVariant_t &variant )		{ return false; }
 	virtual bool Set( void *p, const char *pszKey, ScriptVariant_t &variant )		{ return false; }
-
-	virtual ScriptVariant_t *Add( void *p, ScriptVariant_t &variant )				{ return NULL; }
-	virtual ScriptVariant_t *Subtract( void *p, ScriptVariant_t &variant )			{ return NULL; }
-	virtual ScriptVariant_t *Multiply( void *p, ScriptVariant_t &variant )			{ return NULL; }
-	virtual ScriptVariant_t *Divide( void *p, ScriptVariant_t &variant )			{ return NULL; }
 };
 
 //---------------------------------------------------------
@@ -369,82 +420,53 @@ struct ScriptVariant_t
 	ScriptVariant_t( bool val ) :			m_flags( 0 ), m_type( FIELD_BOOLEAN )	{ m_bool = val; }
 	ScriptVariant_t( HSCRIPT val ) :		m_flags( 0 ), m_type( FIELD_HSCRIPT )	{ m_hScript = val; }
 
-	ScriptVariant_t( const Vector &val, bool bCopy = false ) :	m_flags( 0 ), m_type( FIELD_VECTOR )	{ if ( !bCopy ) { m_pVector = &val; } else { m_pVector = new Vector( val ); m_flags |= SV_FREE; } }
-	ScriptVariant_t( const Vector *val, bool bCopy = false ) :	m_flags( 0 ), m_type( FIELD_VECTOR )	{ if ( !bCopy ) { m_pVector = val; } else { m_pVector = new Vector( *val ); m_flags |= SV_FREE; } }
-	ScriptVariant_t( const char *val , bool bCopy = false ) :	m_flags( 0 ), m_type( FIELD_CSTRING )	{ if ( !bCopy ) { m_pszString = val; } else { m_pszString = strdup( val ); m_flags |= SV_FREE; } }
+	ScriptVariant_t( const Vector &val ) : m_flags( 0 ), m_type( FIELD_VECTOR ) { m_pVector = &val; }
+	ScriptVariant_t( const Vector *val ) : ScriptVariant_t( *val ) { }
 
-	ScriptVariant_t( const QAngle &val, bool bCopy = false ) :	m_flags( 0 ), m_type( FIELD_VECTOR )	{ if ( !bCopy ) { m_pAngle = &val; } else { m_pAngle = new QAngle( val ); m_flags |= SV_FREE; } }
-	ScriptVariant_t( const QAngle *val, bool bCopy = false ) :	m_flags( 0 ), m_type( FIELD_VECTOR )	{ if ( !bCopy ) { m_pAngle = val; } else { m_pAngle = new QAngle( *val ); m_flags |= SV_FREE; } }
+	ScriptVariant_t( const char *val ) : m_flags( 0 ), m_type( FIELD_CSTRING ) { m_pszString = val; }
+
+	ScriptVariant_t( const QAngle &val ) : m_flags( 0 ), m_type( FIELD_VECTOR ) { m_pAngle = &val; }
+	ScriptVariant_t( const QAngle *val ) : ScriptVariant_t( *val ) { }
+
+	ScriptVariant_t( Vector &&val ) = delete;
+	ScriptVariant_t( QAngle &&val ) = delete;
 
 	bool IsNull() const						{ return (m_type == FIELD_VOID ); }
 
 	operator int() const					{ Assert( m_type == FIELD_INTEGER );	return m_int; }
 	operator float() const					{ Assert( m_type == FIELD_FLOAT );		return m_float; }
 	operator const char *() const			{ Assert( m_type == FIELD_CSTRING );	return ( m_pszString ) ? m_pszString : ""; }
-	operator const Vector &() const			{ Assert( m_type == FIELD_VECTOR );		static Vector vecNull(0, 0, 0); return (m_pVector) ? *m_pVector : vecNull; }
+	operator const Vector &() const			{ Assert( m_type == FIELD_VECTOR );		return (m_pVector) ? *m_pVector : vec3_origin; }
 	operator char() const					{ Assert( m_type == FIELD_CHARACTER );	return m_char; }
 	operator bool() const					{ Assert( m_type == FIELD_BOOLEAN );	return m_bool; }
 	operator HSCRIPT() const				{ Assert( m_type == FIELD_HSCRIPT );	return m_hScript; }
-	operator const QAngle &() const			{ Assert( m_type == FIELD_VECTOR );		static QAngle vecNull(0, 0, 0); return (m_pAngle) ? *m_pAngle : vecNull; }
+	operator const QAngle &() const			{ Assert( m_type == FIELD_VECTOR );		return (m_pAngle) ? *m_pAngle : vec3_angle; }
 
-	void operator=( int i ) 				{ m_type = FIELD_INTEGER; m_int = i; }
-	void operator=( float f ) 				{ m_type = FIELD_FLOAT; m_float = f; }
-	void operator=( double f ) 				{ m_type = FIELD_FLOAT; m_float = (float)f; }
-	void operator=( const Vector &vec )		{ m_type = FIELD_VECTOR; m_pVector = &vec; }
-	void operator=( const Vector *vec )		{ m_type = FIELD_VECTOR; m_pVector = vec; }
-	void operator=( const char *psz )		{ m_type = FIELD_CSTRING; m_pszString = psz; }
-	void operator=( char c )				{ m_type = FIELD_CHARACTER; m_char = c; }
-	void operator=( bool b ) 				{ m_type = FIELD_BOOLEAN; m_bool = b; }
-	void operator=( HSCRIPT h ) 			{ m_type = FIELD_HSCRIPT; m_hScript = h; }
-	void operator=( const QAngle &vec )		{ m_type = FIELD_VECTOR; m_pAngle = &vec; }
-	void operator=( const QAngle *vec )		{ m_type = FIELD_VECTOR; m_pAngle = vec; }
+	void operator=( int i ) 				{ m_type = FIELD_INTEGER; m_flags = 0; m_int = i; }
+	void operator=( float f ) 				{ m_type = FIELD_FLOAT; m_flags = 0; m_float = f; }
+	void operator=( double f ) 				{ m_type = FIELD_FLOAT; m_flags = 0; m_float = (float)f; }
+	void operator=( const Vector &vec )		{ m_type = FIELD_VECTOR; m_flags = 0; m_pVector = &vec; }
+	void operator=( const Vector *vec )		{ m_type = FIELD_VECTOR; m_flags = 0; m_pVector = vec; }
+	void operator=( const char *psz )		{ m_type = FIELD_CSTRING; m_flags = 0; m_pszString = psz; }
+	void operator=( char c )				{ m_type = FIELD_CHARACTER; m_flags = 0; m_char = c; }
+	void operator=( bool b ) 				{ m_type = FIELD_BOOLEAN; m_flags = 0; m_bool = b; }
+	void operator=( HSCRIPT h ) 			{ m_type = FIELD_HSCRIPT; m_flags = 0; m_hScript = h; }
+	void operator=( const QAngle &ang )		{ m_type = FIELD_VECTOR; m_flags = 0; m_pAngle = &ang; }
+	void operator=( const QAngle *ang )		{ m_type = FIELD_VECTOR; m_flags = 0; m_pAngle = ang; }
 
-	void Free()								{ if ( ( m_flags & SV_FREE ) && ( m_type == FIELD_HSCRIPT || m_type == FIELD_VECTOR || m_type == FIELD_CSTRING ) ) delete m_pszString; } // Generally only needed for return results
+	void operator=( Vector &&vec ) = delete;
+	void operator=( QAngle &&ang ) = delete;
 
-	template <typename T>
-	T Get()
+	void Free()
 	{
-		T value;
-		AssignTo( &value );
-		return value;
-	}
-
-	template <typename T>
-	bool AssignTo( T *pDest )
-	{
-		ScriptDataType_t destType = ScriptDeduceType( T );
-		if ( destType == FIELD_TYPEUNKNOWN )
+		// Generally only needed for return results
+		if ( ! ( m_flags & SV_FREE ) )
 		{
-			DevWarning( "Unable to convert script variant to unknown type\n" );
-		}
-		if ( destType == m_type )
-		{
-			*pDest = *this;
-			return true;
+			return;
 		}
 
-		if ( m_type != FIELD_VECTOR && m_type != FIELD_CSTRING && destType != FIELD_VECTOR && destType != FIELD_CSTRING )
-		{
-			switch ( m_type )
-			{
-			case FIELD_VOID:		*pDest = 0; break;
-			case FIELD_INTEGER:		*pDest = m_int; return true;
-			case FIELD_FLOAT:		*pDest = m_float; return true;
-			case FIELD_CHARACTER:	*pDest = m_char; return true;
-			case FIELD_BOOLEAN:		*pDest = m_bool; return true;
-			case FIELD_HSCRIPT:		*pDest = m_hScript; return true;
-			}
-		}
-		else
-		{
-			DevWarning( "No free conversion of %s script variant to %s right now\n",
-				ScriptFieldTypeName( m_type ), ScriptFieldTypeName<T>() );
-			if ( destType != FIELD_VECTOR )
-			{
-				*pDest = 0;
-			}
-		}
-		return false;
+		AssertMsg( m_type == FIELD_CSTRING || m_type == FIELD_VECTOR, "Don't know how to free script variant of type %d", m_type );
+		free( (void*)m_pszString );
 	}
 
 	bool AssignTo( float *pDest )
@@ -499,24 +521,37 @@ struct ScriptVariant_t
 
 	bool AssignTo( ScriptVariant_t *pDest )
 	{
+		pDest->Free();
 		pDest->m_type = m_type;
-		if ( m_type == FIELD_VECTOR ) 
+		if ( m_flags & SV_FREE )
 		{
-			pDest->m_pVector = new Vector;
-			((Vector *)(pDest->m_pVector))->Init( m_pVector->x, m_pVector->y, m_pVector->z );
-			pDest->m_flags |= SV_FREE;
-		}
-		else if ( m_type == FIELD_CSTRING ) 
-		{
-			pDest->m_pszString = strdup( m_pszString );
-			pDest->m_flags |= SV_FREE;
+			if ( m_type == FIELD_VECTOR )
+			{
+				pDest->m_pVector = (Vector*)malloc( sizeof( Vector ) );
+				pDest->EmplaceAllocedVector( *m_pVector );
+				m_flags |= SV_FREE;
+			}
+			else if ( m_type == FIELD_CSTRING )
+			{
+				pDest->m_pszString = strdup( m_pszString );
+				pDest->m_flags |= SV_FREE;
+			}
+			else
+			{
+				Assert( false );
+				pDest->m_int = m_int;
+				pDest->m_flags &= ~SV_FREE;
+			}
 		}
 		else
 		{
 			pDest->m_int = m_int;
+			pDest->m_flags &= ~SV_FREE;
 		}
 		return false;
 	}
+
+	void EmplaceAllocedVector( const Vector &vec );
 
 	union
 	{
@@ -538,7 +573,24 @@ struct ScriptVariant_t
 private:
 };
 
+#include "tier0/memdbgoff.h"
+inline void ScriptVariant_t::EmplaceAllocedVector( const Vector &vec )
+{
+	new ( (Vector*)m_pVector ) Vector( vec );
+}
+#include "tier0/memdbgon.h"
+
 #define SCRIPT_VARIANT_NULL ScriptVariant_t()
+
+union ScriptVariantTemporaryStorage_t
+{
+	// members must be initialized via placement-new
+	ScriptVariantTemporaryStorage_t() { }
+
+	// members must have trivial destructor, since no destructor will be invoked
+	Vector m_vec;
+	QAngle m_ang;
+};
 
 //---------------------------------------------------------
 struct ScriptConstantBinding_t
@@ -582,12 +634,125 @@ struct ScriptEnumDesc_t
 #include "vscript_templates.h"
 
 // Lower level macro primitives
+// @NMRiH - Felis: Replaced with ScriptFunctionBindingStorageType_t variants, and made somewhat more readable...
+#define ScriptInitFunctionBinding( pScriptFunction, func ) \
+	ScriptInitFunctionBindingNamed( pScriptFunction, func, #func )
+
+#define ScriptInitFunctionBindingNamed( pScriptFunction, func, scriptName )                  \
+	do                                                                                       \
+	{                                                                                        \
+		ScriptInitFuncDescriptorNamed( ( &( pScriptFunction )->m_desc ), func, scriptName ); \
+		( pScriptFunction )->m_pfnBinding = ScriptCreateBinding( &func );                    \
+		( pScriptFunction )->m_pFunction = ScriptConvertFreeFuncPtrToVoid( &func );          \
+	} while ( 0 )
+
+#define ScriptInitMemberFunctionBinding( pScriptFunction, class, func ) \
+	ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, #func )
+
+#define ScriptInitMemberFunctionBindingNamed( pScriptFunction, class, func, scriptName ) \
+	ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, scriptName )
+
+#define ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, scriptName )                  \
+	do                                                                                                \
+	{                                                                                                 \
+		ScriptInitMemberFuncDescriptor_( ( &( pScriptFunction )->m_desc ), class, func, scriptName ); \
+		( pScriptFunction )->m_pfnBinding = ScriptCreateBinding( ( ( class * )0 ), &class ::func );   \
+		( pScriptFunction )->m_pFunction = ScriptConvertFuncPtrToVoid( &class ::func );               \
+		( pScriptFunction )->m_flags = SF_MEMBER_FUNC;                                                \
+	} while ( 0 )
+
+// Convert HSCRIPT_RC return type into HSCRIPT return with SF_REFCOUNTED_RET binding flag
+#undef ScriptInitFunctionBindingNamed
+#define ScriptInitFunctionBindingNamed( pScriptFunction, func, scriptName )                  \
+	do                                                                                       \
+	{                                                                                        \
+		ScriptInitFuncDescriptorNamed( ( &( pScriptFunction )->m_desc ), func, scriptName ); \
+		( pScriptFunction )->m_pfnBinding = ScriptCreateBinding( &func );                    \
+		( pScriptFunction )->m_pFunction = ScriptConvertFreeFuncPtrToVoid( &func );          \
+		if ( ( pScriptFunction )->m_desc.m_ReturnType == FIELD_HSCRIPT_RC )                  \
+		{                                                                                    \
+			( pScriptFunction )->m_desc.m_ReturnType = FIELD_HSCRIPT;                        \
+			( pScriptFunction )->m_flags |= SF_REFCOUNTED_RET;                               \
+		}                                                                                    \
+	} while ( 0 )
+
+#undef ScriptInitMemberFunctionBinding_
+#define ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, scriptName )                  \
+	do                                                                                                \
+	{                                                                                                 \
+		ScriptInitMemberFuncDescriptor_( ( &( pScriptFunction )->m_desc ), class, func, scriptName ); \
+		( pScriptFunction )->m_pfnBinding = ScriptCreateBinding( ( ( class * )0 ), &class ::func );   \
+		( pScriptFunction )->m_pFunction = ScriptConvertFuncPtrToVoid( &class ::func );               \
+		( pScriptFunction )->m_flags = SF_MEMBER_FUNC;                                                \
+		if ( ( pScriptFunction )->m_desc.m_ReturnType == FIELD_HSCRIPT_RC )                           \
+		{                                                                                             \
+			( pScriptFunction )->m_desc.m_ReturnType = FIELD_HSCRIPT;                                 \
+			( pScriptFunction )->m_flags |= SF_REFCOUNTED_RET;                                        \
+		}                                                                                             \
+	} while ( 0 )
+
+#define ScriptInitClassDesc( pClassDesc, class, pBaseClassDesc ) \
+	ScriptInitClassDescNamed( pClassDesc, class, pBaseClassDesc, #class )
+
+#define ScriptInitClassDescNamed( pClassDesc, class, pBaseClassDesc, scriptName ) \
+	ScriptInitClassDescNamed_( pClassDesc, class, pBaseClassDesc, scriptName )
+
+#define ScriptInitClassDescNoBase( pClassDesc, class ) \
+	ScriptInitClassDescNoBaseNamed( pClassDesc, class, #class )
+
+#define ScriptInitClassDescNoBaseNamed( pClassDesc, class, scriptName ) \
+	ScriptInitClassDescNamed_( pClassDesc, class, NULL, scriptName )
+
+#define ScriptInitClassDescNamed_( pClassDesc, class, pBaseClassDesc, scriptName ) \
+	do                                                                             \
+	{                                                                              \
+		( pClassDesc )->m_pszScriptName = scriptName;                              \
+		( pClassDesc )->m_pszClassname = #class;                                   \
+		( pClassDesc )->m_pBaseDesc = pBaseClassDesc;                              \
+	} while ( 0 )
+
+#define ScriptAddFunctionToClassDesc( pClassDesc, class, func, description ) \
+	ScriptAddFunctionToClassDescNamed( pClassDesc, class, func, #func, description )
+
+#define ScriptAddFunctionToClassDescNamed( pClassDesc, class, func, scriptName, description )                                        \
+	do                                                                                                                               \
+	{                                                                                                                                \
+		ScriptFunctionBinding_t *pBinding = &( ( pClassDesc )->m_FunctionBindings[( pClassDesc )->m_FunctionBindings.AddToTail()] ); \
+		pBinding->m_desc.m_pszDescription = description;                                                                             \
+		ScriptInitMemberFunctionBindingNamed( pBinding, class, func, scriptName );                                                   \
+	} while ( 0 )
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+
+#define ScriptRegisterFunction( pVM, func, description ) \
+	ScriptRegisterFunctionNamed( pVM, func, #func, description )
+
+#define ScriptRegisterFunctionNamed( pVM, func, scriptName, description ) \
+	do                                                                    \
+	{                                                                     \
+		static ScriptFunctionBinding_t binding;                           \
+		binding.m_desc.m_pszDescription = description;                    \
+		binding.m_desc.m_Parameters.RemoveAll();                          \
+		ScriptInitFunctionBindingNamed( &binding, func, scriptName );     \
+		pVM->RegisterFunction( &binding );                                \
+	} while ( 0 )
+
+/*
 #define ScriptInitFunctionBinding( pScriptFunction, func )									ScriptInitFunctionBindingNamed( pScriptFunction, func, #func )
 #define ScriptInitFunctionBindingNamed( pScriptFunction, func, scriptName )					do { ScriptInitFuncDescriptorNamed( (&(pScriptFunction)->m_desc), func, scriptName ); (pScriptFunction)->m_pfnBinding = ScriptCreateBinding( &func ); (pScriptFunction)->m_pFunction = (void *)&func; } while (0)
 
 #define ScriptInitMemberFunctionBinding( pScriptFunction, class, func )						ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, #func )
 #define ScriptInitMemberFunctionBindingNamed( pScriptFunction, class, func, scriptName )	ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, scriptName )
 #define ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, scriptName ) 		do { ScriptInitMemberFuncDescriptor_( (&(pScriptFunction)->m_desc), class, func, scriptName ); (pScriptFunction)->m_pfnBinding = ScriptCreateBinding( ((class *)0), &class::func ); 	(pScriptFunction)->m_pFunction = ScriptConvertFuncPtrToVoid( &class::func ); (pScriptFunction)->m_flags = SF_MEMBER_FUNC;  } while (0)
+
+// Convert HSCRIPT_RC return type into HSCRIPT return with SF_REFCOUNTED_RET binding flag
+#undef ScriptInitFunctionBindingNamed
+#define ScriptInitFunctionBindingNamed( pScriptFunction, func, scriptName )					do { ScriptInitFuncDescriptorNamed( (&(pScriptFunction)->m_desc), func, scriptName ); (pScriptFunction)->m_pfnBinding = ScriptCreateBinding( &func ); (pScriptFunction)->m_pFunction = (void *)&func; if ( (pScriptFunction)->m_desc.m_ReturnType == FIELD_HSCRIPT_RC ) { (pScriptFunction)->m_desc.m_ReturnType = FIELD_HSCRIPT; (pScriptFunction)->m_flags |= SF_REFCOUNTED_RET; } } while (0)
+
+#undef ScriptInitMemberFunctionBinding_
+#define ScriptInitMemberFunctionBinding_( pScriptFunction, class, func, scriptName ) 		do { ScriptInitMemberFuncDescriptor_( (&(pScriptFunction)->m_desc), class, func, scriptName ); (pScriptFunction)->m_pfnBinding = ScriptCreateBinding( ((class *)0), &class::func ); 	(pScriptFunction)->m_pFunction = ScriptConvertFuncPtrToVoid( &class::func ); (pScriptFunction)->m_flags = SF_MEMBER_FUNC; if ( (pScriptFunction)->m_desc.m_ReturnType == FIELD_HSCRIPT_RC ) { (pScriptFunction)->m_desc.m_ReturnType = FIELD_HSCRIPT; (pScriptFunction)->m_flags |= SF_REFCOUNTED_RET; } } while (0)
 
 #define ScriptInitClassDesc( pClassDesc, class, pBaseClassDesc )							ScriptInitClassDescNamed( pClassDesc, class, pBaseClassDesc, #class )
 #define ScriptInitClassDescNamed( pClassDesc, class, pBaseClassDesc, scriptName )			ScriptInitClassDescNamed_( pClassDesc, class, pBaseClassDesc, scriptName )
@@ -604,12 +769,12 @@ struct ScriptEnumDesc_t
 
 #define ScriptRegisterFunction( pVM, func, description )									ScriptRegisterFunctionNamed( pVM, func, #func, description )
 #define ScriptRegisterFunctionNamed( pVM, func, scriptName, description )					do { static ScriptFunctionBinding_t binding; binding.m_desc.m_pszDescription = description; binding.m_desc.m_Parameters.RemoveAll(); ScriptInitFunctionBindingNamed( &binding, func, scriptName ); pVM->RegisterFunction( &binding ); } while (0)
+*/
 
 //-----------------------------------------------------------------------------
 // 
 //-----------------------------------------------------------------------------
 
-// @NMRiH - Felis: Merged z33ky's GCC type fix from Mapbase's develop branch
 // forwards T (and T&) if T is neither enum or an unsigned integer
 // the overload for int below captures enums and unsigned integers and "bends" them to int
 template<typename T>
@@ -630,7 +795,7 @@ static inline int ToConstantVariant(int value)
 // This is used for registering variants (particularly vectors) not tied to existing variables.
 // The principal difference is that m_data is initted with bCopy set to true.
 #define ScriptRegisterConstantFromTemp( pVM, constant, description )									ScriptRegisterConstantFromTempNamed( pVM, constant, #constant, description )
-#define ScriptRegisterConstantFromTempNamed( pVM, constant, scriptName, description )					do { static ScriptConstantBinding_t binding; binding.m_pszScriptName = scriptName; binding.m_pszDescription = description; binding.m_data = ScriptVariant_t( constant, true ); pVM->RegisterConstant( &binding ); } while (0)
+#define ScriptRegisterConstantFromTempNamed( pVM, constant, scriptName, description )					do { static const auto constantStorage = constant; static ScriptConstantBinding_t binding; binding.m_pszScriptName = scriptName; binding.m_pszDescription = description; binding.m_data = ScriptVariant_t( constantStorage ); pVM->RegisterConstant( &binding ); } while (0)
 
 //-----------------------------------------------------------------------------
 // 
@@ -667,37 +832,48 @@ static inline int ToConstantVariant(int value)
 // 
 //-----------------------------------------------------------------------------
 
-#define ALLOW_SCRIPT_ACCESS() 																template <typename T> friend ScriptClassDesc_t *GetScriptDesc(T *);
+#define ALLOW_SCRIPT_ACCESS() 																template <typename T> friend ScriptClassDesc_t *GetScriptDesc(T *, bool);
 
-#define BEGIN_SCRIPTDESC( className, baseClass, description )								BEGIN_SCRIPTDESC_NAMED( className, baseClass, #className, description )
-#define BEGIN_SCRIPTDESC_ROOT( className, description )										BEGIN_SCRIPTDESC_ROOT_NAMED( className, #className, description )
+#define BEGIN_SCRIPTDESC( className, baseClass, description )								BEGIN_SCRIPTDESC_WITH_HELPER( className, baseClass, description, NULL )
+#define BEGIN_SCRIPTDESC_WITH_HELPER( className, baseClass, description, helper )			BEGIN_SCRIPTDESC_NAMED_WITH_HELPER( className, baseClass, #className, description, helper )
+#define BEGIN_SCRIPTDESC_ROOT( className, description )										BEGIN_SCRIPTDESC_ROOT_WITH_HELPER( className, description, NULL )
+#define BEGIN_SCRIPTDESC_ROOT_WITH_HELPER( className, description, helper )					BEGIN_SCRIPTDESC_ROOT_NAMED_WITH_HELPER( className, #className, description, helper )
 
-#define BEGIN_SCRIPTDESC_NAMED( className, baseClass, scriptName, description ) \
-	template <> ScriptClassDesc_t* GetScriptDesc<baseClass>(baseClass*); \
-	template <> ScriptClassDesc_t* GetScriptDesc<className>(className*); \
-	ScriptClassDesc_t & g_##className##_ScriptDesc = *GetScriptDesc<className>(nullptr); \
-	template <> ScriptClassDesc_t* GetScriptDesc<className>(className*) \
+#define BEGIN_SCRIPTDESC_NAMED_WITH_HELPER( className, baseClass, scriptName, description, helper ) \
+	template <> ScriptClassDesc_t* GetScriptDesc<baseClass>(baseClass*, bool); \
+	template <> ScriptClassDesc_t* GetScriptDesc<className>(className*, bool); \
+	ScriptClassDesc_t & g_##className##_ScriptDesc = *GetScriptDesc<className>(nullptr, true); \
+	template <> ScriptClassDesc_t* GetScriptDesc<className>(className*, bool init) \
 	{ \
 		static ScriptClassDesc_t g_##className##_ScriptDesc; \
 		typedef className _className; \
 		ScriptClassDesc_t *pDesc = &g_##className##_ScriptDesc; \
-		if (pDesc->m_pszClassname) return pDesc; \
-		pDesc->m_pszDescription = description; \
-		ScriptInitClassDescNamed( pDesc, className, GetScriptDescForClass( baseClass ), scriptName ); \
-		ScriptClassDesc_t *pInstanceHelperBase = pDesc->m_pBaseDesc; \
-		while ( pInstanceHelperBase ) \
+		if (!pDesc->m_pszClassname) \
 		{ \
-			if ( pInstanceHelperBase->pHelper ) \
+			pDesc->m_pszDescription = description; \
+			ScriptClassDesc_t *pBaseDesc = GetScriptDescForClass( baseClass ); \
+			ScriptInitClassDescNamed( pDesc, className, pBaseDesc, scriptName ); \
+			pDesc->pHelper = helper; \
+			if ( !pDesc->pHelper ) \
 			{ \
-				pDesc->pHelper = pInstanceHelperBase->pHelper; \
-				break; \
+				while ( pBaseDesc ) \
+				{ \
+					if ( pBaseDesc->pHelper ) \
+					{ \
+						pDesc->pHelper = pBaseDesc->pHelper; \
+						break; \
+					} \
+					pBaseDesc = pBaseDesc->m_pBaseDesc; \
+				} \
 			} \
-			pInstanceHelperBase = pInstanceHelperBase->m_pBaseDesc; \
-		}
+		} \
+		if (!init) return pDesc;
 
 
 #define BEGIN_SCRIPTDESC_ROOT_NAMED( className, scriptName, description ) \
-	BEGIN_SCRIPTDESC_NAMED( className, ScriptNoBase_t, scriptName, description )
+	BEGIN_SCRIPTDESC_ROOT_NAMED_WITH_HELPER( className, scriptName, description, NULL )
+#define BEGIN_SCRIPTDESC_ROOT_NAMED_WITH_HELPER( className, scriptName, description, helper ) \
+	BEGIN_SCRIPTDESC_NAMED_WITH_HELPER( className, ScriptNoBase_t, scriptName, description, helper )
 
 #define END_SCRIPTDESC() \
 		return pDesc; \
@@ -706,7 +882,16 @@ static inline int ToConstantVariant(int value)
 #define DEFINE_SCRIPTFUNC( func, description )												DEFINE_SCRIPTFUNC_NAMED( func, #func, description )
 #define DEFINE_SCRIPTFUNC_NAMED( func, scriptName, description )							ScriptAddFunctionToClassDescNamed( pDesc, _className, func, scriptName, description );
 #define DEFINE_SCRIPT_CONSTRUCTOR()															ScriptAddConstructorToClassDesc( pDesc, _className );
-#define DEFINE_SCRIPT_INSTANCE_HELPER( p )													pDesc->pHelper = (p);
+#define DEFINE_SCRIPT_INSTANCE_HELPER( p ) MUST_USE_BEGIN_SCRIPTDESC_WITH_HELPER_INSTEAD
+
+// @NMRiH - Felis: TF2 SDK compatibility
+#define SCRIPTFUNC_CONCAT_(x, y) x##y
+#define SCRIPTFUNC_CONCAT(x, y) SCRIPTFUNC_CONCAT_(x, y)
+#define DEFINE_SCRIPTFUNC_WRAPPED( func, description )										DEFINE_SCRIPTFUNC_NAMED( SCRIPTFUNC_CONCAT( Script, func ), #func, description )
+
+// Allow instance to be deleted but not constructed
+// Not needed if the class has a constructor
+#define DEFINE_SCRIPT_REFCOUNTED_INSTANCE()													do { pDesc->m_pfnDestruct = &CScriptConstructor<_className>::Destruct; } while (0);
 
 // Use this for hooks which have no parameters
 #define DEFINE_SIMPLE_SCRIPTHOOK( hook, hookName, returnType, description ) \
@@ -760,10 +945,10 @@ static inline int ToConstantVariant(int value)
 #define DEFINE_MEMBERVAR( varName, returnType, description ) \
 	do { ScriptMemberDesc_t *pBinding = &((pDesc)->m_Members[(pDesc)->m_Members.AddToTail()]); pBinding->m_pszScriptName = varName; pBinding->m_pszDescription = description; pBinding->m_ReturnType = returnType; } while (0);
 
-template <typename T> ScriptClassDesc_t *GetScriptDesc(T *);
+template <typename T> ScriptClassDesc_t *GetScriptDesc(T *, bool = false);
 
 struct ScriptNoBase_t;
-template <> inline ScriptClassDesc_t *GetScriptDesc<ScriptNoBase_t>( ScriptNoBase_t *) { return NULL; }
+template <> inline ScriptClassDesc_t *GetScriptDesc<ScriptNoBase_t>( ScriptNoBase_t *, bool ) { return NULL; }
 
 #define GetScriptDescForClass( className ) GetScriptDesc( ( className *)NULL )
 
@@ -818,7 +1003,7 @@ public:
 	virtual void Shutdown() = 0;
 
 	// @NMRiH - Felis: Ported from Mapbase
-	virtual bool ConnectDebugger( int port = 0 ) = 0;
+	virtual bool ConnectDebugger( int port = 0, float timeout = 0.0f ) = 0;
 	/*
 	virtual bool ConnectDebugger() = 0;
 	*/
@@ -905,14 +1090,13 @@ public:
 	// External instances. Note class will be auto-registered.
 	//--------------------------------------------------------
 
-	// When a RegisterInstance instance is deleted, VScript normally treats it as a strong reference and only deregisters the instance itself, preserving the registered data
-	// it points to so the game can continue to use it.
-	// bAllowDestruct is supposed to allow VScript to treat it as a weak reference created by the script, destructing the registered data automatically like any other type.
-	// This is useful for classes pretending to be primitive types.
-	virtual HSCRIPT RegisterInstance( ScriptClassDesc_t *pDesc, void *pInstance, bool bAllowDestruct = false ) = 0;
+	// if bRefCounted is true, pInstance memory will be deleted by the script,
+	// returning the result will then behave as if the instance was constructed in script.
+	// Functions that return the result of this need to return HSCRIPT_RC
+	virtual HSCRIPT RegisterInstance( ScriptClassDesc_t *pDesc, void *pInstance, bool bRefCounted = false ) = 0;
 	virtual void SetInstanceUniqeId( HSCRIPT hInstance, const char *pszId ) = 0;
-	template <typename T> HSCRIPT RegisterInstance( T *pInstance, bool bAllowDestruct = false )																	{ return RegisterInstance( GetScriptDesc( pInstance ), pInstance, bAllowDestruct );	}
-	template <typename T> HSCRIPT RegisterInstance( T *pInstance, const char *pszInstance, HSCRIPT hScope = NULL, bool bAllowDestruct = false)					{ HSCRIPT hInstance = RegisterInstance( GetScriptDesc( pInstance ), pInstance, bAllowDestruct ); SetValue( hScope, pszInstance, hInstance ); return hInstance; }
+	template <typename T> HSCRIPT RegisterInstance( T *pInstance, bool bRefCounted = false )																	{ return RegisterInstance( GetScriptDesc( pInstance ), pInstance, bRefCounted );	}
+	template <typename T> HSCRIPT RegisterInstance( T *pInstance, const char *pszInstance, HSCRIPT hScope = NULL, bool bRefCounted = false)					{ HSCRIPT hInstance = RegisterInstance( GetScriptDesc( pInstance ), pInstance, bRefCounted ); SetValue( hScope, pszInstance, hInstance ); return hInstance; }
 
 	virtual void RemoveInstance( HSCRIPT ) = 0;
 	void RemoveInstance( HSCRIPT hInstance, const char *pszInstance, HSCRIPT hScope = NULL )										{ ClearValue( hScope, pszInstance ); RemoveInstance( hInstance ); }
@@ -969,6 +1153,8 @@ public:
 	virtual void CreateArray(ScriptVariant_t &arr, int size = 0) = 0;
 	virtual bool ArrayAppend(HSCRIPT hArray, const ScriptVariant_t &val) = 0;
 
+	// To hold strong references to script objects
+	virtual HSCRIPT CopyObject(HSCRIPT obj) = 0;
 
 	//----------------------------------------------------------------------------
 
@@ -986,6 +1172,7 @@ public:
 	virtual bool RaiseException( const char *pszExceptionText ) = 0;
 
 	// @NMRiH - Felis: Has a specific use case for duplicating transient params as persistent handles
+	// REVISIT: This predates CopyObject from upstream, check all usages!
 	virtual HSCRIPT DuplicateObject( HSCRIPT hObject ) = 0;
 
 	// @NMRiH - Felis: Used as pre-condition for functions dealing with tables to catch errors early
@@ -1840,7 +2027,7 @@ public:
 			scopemap_t *scopeMap = m_HookList.Element(i);
 			char *szEvent = m_HookList.Key(i);
 
-			Msg( "%s [%p]\n", szEvent, (void *)scopeMap );
+			Msg( "%s [%p]\n", szEvent, (void*)scopeMap );
 			Msg( "{\n" );
 
 			FOR_EACH_MAP_PTR( scopeMap, j )
@@ -1848,7 +2035,15 @@ public:
 				HScriptRaw hScope = scopeMap->Key(j);
 				contextmap_t *contextMap = scopeMap->Element(j);
 
+				// @NMRiH - Felis: 64-bit compatibility
+#ifdef PLATFORM_64BITS
+				Msg( "\t(0x%llX) [%p]\n", hScope, (void *)contextMap );
+#else
 				Msg( "\t(0x%X) [%p]\n", hScope, (void *)contextMap );
+#endif
+				/*
+				Msg( "\t(0x%X) [%p]\n", hScope, (void *)contextMap );
+				*/
 				Msg( "\t{\n" );
 
 				FOR_EACH_VEC_PTR( contextMap, k )

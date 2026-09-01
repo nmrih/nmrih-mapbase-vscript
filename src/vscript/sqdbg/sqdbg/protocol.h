@@ -6,32 +6,38 @@
 #ifndef SQDBG_DAP_H
 #define SQDBG_DAP_H
 
-class json_table_t;
-struct json_value_t;
-int GetJSONStringSize( json_table_t *obj );
-int JSONStringify( json_table_t *obj, char *mem, int size, int idx );
-template < typename I > int countdigits( I input );
-void *sqdbg_malloc( unsigned int size );
-void sqdbg_free( void *p, unsigned int size );
-
-#define DAP_HEADER_START "Content-Length: "
+#define DAP_HEADER_CONTENTLENGTH "Content-Length: "
 #define DAP_HEADER_END "\r\n\r\n"
+#define DAP_HEADER_MAXSIZE ( STRLEN(DAP_HEADER_CONTENTLENGTH) + STRLEN(DAP_HEADER_END) + FMT_UINT32_LEN )
 
-#define STRLEN(s) (sizeof(s) - 1)
-
-#define STRCMP( s, StrLiteral )\
-	memcmp( (s), (StrLiteral), sizeof(StrLiteral)-1 )
-
-inline void DAP_Serialise( json_table_t *table, char **jsonptr, int *jsonlen )
+inline void DAP_Serialise( CBuffer *buffer )
 {
-	int contentSize = GetJSONStringSize( table );
-	int idx = countdigits( contentSize );
-	int size = STRLEN( DAP_HEADER_START DAP_HEADER_END ) + idx + contentSize + 1;
+	Assert( buffer->Size() > 0 && buffer->Size() < INT_MAX );
 
-	char *mem = (char*)sqdbg_malloc( ( size + 3 ) & ~3 );
+	char *mem = buffer->Base();
+	int contentSize = buffer->Size() - DAP_HEADER_MAXSIZE;
+	int digits = countdigits( contentSize );
+	int padding = FMT_UINT32_LEN - digits;
 
-	memcpy( mem, DAP_HEADER_START, STRLEN( DAP_HEADER_START ) );
-	idx += STRLEN( DAP_HEADER_START );
+	int nearest = 10;
+	while ( contentSize >= nearest )
+		nearest *= 10;
+
+	contentSize += padding;
+
+	if ( contentSize >= nearest )
+	{
+		// Padding between header and content increased content size digits,
+		// add padding in the end to match
+		padding--;
+		digits++;
+		buffer->base.Ensure( buffer->Size() + 1 );
+		mem[buffer->size++] = ' ';
+	}
+
+	memcpy( mem, DAP_HEADER_CONTENTLENGTH, STRLEN(DAP_HEADER_CONTENTLENGTH) );
+
+	int idx = STRLEN(DAP_HEADER_CONTENTLENGTH) + digits;
 
 	for ( int i = idx - 1; contentSize; )
 	{
@@ -40,114 +46,244 @@ inline void DAP_Serialise( json_table_t *table, char **jsonptr, int *jsonlen )
 		mem[i--] = '0' + c;
 	}
 
-	memcpy( mem + idx, DAP_HEADER_END, STRLEN( DAP_HEADER_END ) );
-	idx += STRLEN( DAP_HEADER_END );
-
-	idx = JSONStringify( table, mem, size, idx );
-	mem[idx] = 0;
-
-	Assert( idx == size-1 );
-
-	*jsonptr = mem;
-	*jsonlen = idx;
+	memcpy( mem + idx, DAP_HEADER_END, STRLEN(DAP_HEADER_END) );
+	idx += STRLEN(DAP_HEADER_END);
+	memset( mem + idx, ' ', padding );
 }
 
-inline void DAP_Free( char *jsonptr, int jsonlen )
+inline void DAP_Free( CBuffer *buffer )
 {
-	sqdbg_free( jsonptr, ( ( jsonlen + 1 ) + 3 ) & ~3 );
+	buffer->size = 0;
+}
+
+static inline int ParseFieldName( const char *pMemEnd, char *pStart )
+{
+	char *c = pStart;
+
+	for (;;)
+	{
+		if ( IN_RANGE_CHAR( ((unsigned char*)c)[0], 0x20, 0x7E ) )
+		{
+			if ( c + 1 >= pMemEnd )
+				return -1;
+
+			if ( c[0] == ':' )
+			{
+				if ( c[1] == ' ' )
+					return c - pStart;
+
+				return 0;
+			}
+
+			c++;
+		}
+		else
+		{
+			return 0;
+		}
+	}
+}
+
+static inline int ParseFieldValue( const char *pMemEnd, char *pStart )
+{
+	char *c = pStart;
+
+	for (;;)
+	{
+		if ( c + 1 >= pMemEnd )
+			return -1;
+
+		if ( c[0] == '\n' )
+			return 0;
+
+		if ( c[0] == '\r' && c[1] == '\n' )
+			return c - pStart;
+
+		c++;
+	}
 }
 
 inline bool DAP_ReadHeader( char **ppMsg, int *pLength )
 {
 	char *pMsg = *ppMsg;
-
-	if ( STRCMP( pMsg, DAP_HEADER_START ) != 0 )
-		return false;
-
-	pMsg += STRLEN( DAP_HEADER_START );
-
-	char *pEnd = (char*)strstr( pMsg, DAP_HEADER_END );
-	if ( !pEnd )
-		return false;
-
+	const char *pMemEnd = pMsg + *pLength;
 	int nContentLength = 0;
 
-	for ( char *c = pMsg; c < pEnd; c++ )
+	for (;;)
 	{
-		if ( *c >= '0' && *c <= '9' )
+		int len = ParseFieldName( pMemEnd, pMsg );
+
+		if ( len == 0 )
+			goto invalid;
+
+		if ( len == -1 )
+			return false;
+
+		if ( len == (int)STRLEN(DAP_HEADER_CONTENTLENGTH) - 2 &&
+				!memcmp( pMsg, DAP_HEADER_CONTENTLENGTH, STRLEN(DAP_HEADER_CONTENTLENGTH) - 2 ) )
 		{
-			nContentLength = nContentLength * 10 + *c - '0';
+			// Duplicate length field
+			if ( nContentLength )
+				goto ignore;
+
+			pMsg += len + 2;
+
+			for ( char *pStart = pMsg;; )
+			{
+				if ( pMsg >= pMemEnd )
+					return false;
+
+				if ( IN_RANGE_CHAR( *pMsg, '0', '9' ) )
+				{
+					nContentLength = nContentLength * 10 + *pMsg - '0';
+					pMsg++;
+
+					if ( pMsg - pStart > (int)FMT_UINT32_LEN )
+						goto invalid;
+				}
+				// Strict - no whitespace allowed
+				else
+				{
+					if ( pMsg + 1 >= pMemEnd )
+						return false;
+
+					if ( pMsg[0] == '\r' && pMsg[1] == '\n' )
+					{
+						if ( nContentLength <= 0 )
+							goto invalid;
+
+						*pLength = nContentLength;
+						pMsg += 2;
+						break;
+					}
+					else
+					{
+						goto invalid;
+					}
+				}
+			}
 		}
-		else return false;
+		// Ignore unknown header fields
+		else
+		{
+ignore:
+			pMsg += len + 2;
+
+			len = ParseFieldValue( pMemEnd, pMsg );
+
+			if ( len == 0 )
+				goto invalid;
+
+			if ( len == -1 )
+				return false;
+
+			pMsg += len + 2;
+		}
+
+		if ( pMsg + 1 >= pMemEnd )
+			return false;
+
+		if ( pMsg[0] == '\r' && pMsg[1] == '\n' )
+		{
+			*ppMsg = pMsg + 2;
+			return true;
+		}
 	}
 
-	if ( !nContentLength )
-		return false;
-
-	*pLength = nContentLength;
-	*ppMsg = pEnd + STRLEN( DAP_HEADER_END );
-
+invalid:
+	// Signal that the client needs to be dropped
+	*pLength = -1;
+	*ppMsg = pMsg;
 	return true;
 }
 
-#undef DAP_HEADER_START
-#undef DAP_HEADER_END
+#ifdef SQDBG_VALIDATE_SENT_MSG
+inline void DAP_Test( CScratch< true > *scratch, CBuffer *buffer )
+{
+	char *pMsg = buffer->Base();
+	int nLength = buffer->Size();
 
-#undef STRLEN
-#undef STRCMP
+	bool res = DAP_ReadHeader( &pMsg, &nLength );
+	Assert( res && nLength < buffer->Size() );
 
+	if ( res )
+	{
+		CScratch_Restore_Auto _sr( scratch );
+
+		json_table_t table;
+		JSONParser parser( scratch, pMsg, nLength, &table );
+
+		AssertMsg1( !parser.GetError(), "%s", parser.GetError() );
+	}
+}
+#else
+#define DAP_Test(...) (void)0
+#endif
+
+#define _DAP_INIT_BUF( _buf ) \
+	CBufTmpCache _bufcache( (_buf) ); \
+	(_buf)->size = DAP_HEADER_MAXSIZE; \
+	(void)0
 
 #define DAP_START_REQUEST( _seq, _cmd ) \
-	if ( IsClientConnected() ) \
+{ \
+	_DAP_INIT_BUF( &m_SendBuf ); \
 	{ \
-		json_table_t packet(4); \
+		wjson_table_t packet( m_SendBuf ); \
 		packet.SetInt( "seq", _seq ); \
 		packet.SetString( "type", "request" ); \
-		packet.SetString( "command", _cmd );
+		packet.SetString( "command", _cmd ); \
+		(void)0
 
-#define _DAP_START_RESPONSE( _seq, _cmd, _suc, _elemcount ) \
-	if ( IsClientConnected() ) \
+#define _DAP_START_RESPONSE( _seq, _cmd, _suc ) \
+if ( IsClientConnected() ) \
+{ \
+	_DAP_INIT_BUF( &m_SendBuf ); \
 	{ \
-		json_table_t packet(4 + _elemcount); \
+		wjson_table_t packet( m_SendBuf ); \
 		packet.SetInt( "request_seq", _seq ); \
 		packet.SetString( "type", "response" ); \
 		packet.SetString( "command", _cmd ); \
-		packet.SetBool( "success", _suc );
+		packet.SetBool( "success", _suc ); \
+		(void)0
 
 #define DAP_START_RESPONSE( _seq, _cmd ) \
-		_DAP_START_RESPONSE( _seq, _cmd, true, 1 );
+		_DAP_START_RESPONSE( _seq, _cmd, true )
 
 #define DAP_ERROR_RESPONSE( _seq, _cmd ) \
-		_DAP_START_RESPONSE( _seq, _cmd, false, 1 );
+		_DAP_START_RESPONSE( _seq, _cmd, false )
 
-#define DAP_ERROR_BODY( _id, _fmt, _elemcount ) \
-		DAP_SET_TABLE( body, 1 ); \
-		json_table_t &error = body.SetTable( "error", 2 + _elemcount ); \
+#define DAP_ERROR_BODY( _id, _fmt ) \
+		wjson_table_t body = packet.SetTable( "body" ); \
+		wjson_table_t error = body.SetTable( "error" ); \
 		error.SetInt( "id", _id ); \
 		error.SetString( "format", _fmt ); \
+		(void)0
 
 #define DAP_START_EVENT( _seq, _ev ) \
-	if ( IsClientConnected() ) \
+{ \
+	_DAP_INIT_BUF( &m_SendBuf ); \
 	{ \
-		json_table_t packet(4); \
+		wjson_table_t packet( m_SendBuf ); \
 		packet.SetInt( "seq", _seq ); \
 		packet.SetString( "type", "event" ); \
-		packet.SetString( "event", _ev );
+		packet.SetString( "event", _ev ); \
+		(void)0
 
 #define DAP_SET( _key, _val ) \
-		packet.Set( _key, _val );
+		packet.Set( _key, _val )
 
-#define DAP_SET_TABLE( _val, _elemcount ) \
-		json_table_t &_val = packet.SetTable( #_val, _elemcount )
+#define DAP_SET_TABLE( _val ) \
+		wjson_table_t _val = packet.SetTable( #_val )
 
 #define DAP_SEND() \
-		{ \
-			char *jsonptr; \
-			int jsonlen; \
-			DAP_Serialise( &packet, &jsonptr, &jsonlen ); \
-			Send( jsonptr, jsonlen ); \
-			DAP_Free( jsonptr, jsonlen ); \
-		} \
-	}
+	} \
+\
+	DAP_Serialise( &m_SendBuf ); \
+	Send( m_SendBuf.Base(), m_SendBuf.Size() ); \
+	DAP_Test( &m_Scratch, &m_SendBuf ); \
+	DAP_Free( &m_SendBuf ); \
+} \
+(void)0
 
 #endif // SQDBG_DAP_H

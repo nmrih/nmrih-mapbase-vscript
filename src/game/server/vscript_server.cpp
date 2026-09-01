@@ -18,15 +18,17 @@
 #include "world.h"
 
 // @NMRiH - Felis
+#ifdef NMRIH_DLL
 #include "nmrih_challenge_manager.h"
 #include "nmrih_shareddefs.h"
+#endif
 
 #include "mapbase/vscript_singletons.h"
 
 extern ScriptClassDesc_t * GetScriptDesc( CBaseEntity * );
 
 // @NMRiH - Felis: Ported from Mapbase
-extern int vscript_debugger_port;
+ConVar script_connect_debugger_on_mapspawn( "script_connect_debugger_on_mapspawn", "0" );
 
 // #define VMPROFILE 1
 
@@ -178,6 +180,7 @@ public:
 		}
 	};
 
+private:
 } g_ScriptEntityIterator;
 
 BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETON "The global list of entities" )
@@ -209,15 +212,15 @@ BEGIN_SCRIPTDESC_ROOT_NAMED( CScriptEntityIterator, "CEntities", SCRIPT_SINGLETO
 	DEFINE_SCRIPTFUNC( DisableEntityListening, "Disables the 'OnEntity' hooks." )
 	*/
 
-	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityCreated ), "OnEntityCreated", FIELD_VOID, "Called when an entity is created. Requires EnableEntityListening() to be fired beforehand." )
+	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityCreated ), "OnEntityCreated", FIELD_VOID, "Called when an entity is created." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
 	END_SCRIPTHOOK()
 
-	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntitySpawned ), "OnEntitySpawned", FIELD_VOID, "Called when an entity spawns. Requires EnableEntityListening() to be fired beforehand." )
+	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntitySpawned ), "OnEntitySpawned", FIELD_VOID, "Called when an entity spawns." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
 	END_SCRIPTHOOK()
 
-	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityDeleted ), "OnEntityDeleted", FIELD_VOID, "Called when an entity is deleted. Requires EnableEntityListening() to be fired beforehand." )
+	BEGIN_SCRIPTHOOK( GET_SCRIPTHOOK( OnEntityDeleted ), "OnEntityDeleted", FIELD_VOID, "Called when an entity is deleted." )
 		DEFINE_SCRIPTHOOK_PARAM( "entity", FIELD_HSCRIPT )
 	END_SCRIPTHOOK()
 
@@ -418,6 +421,238 @@ static float ScriptTraceLine( const Vector &vecStart, const Vector &vecEnd, HSCR
 	}
 }
 
+// @NMRiH - Felis: Internal function for filling a table with trace_t
+void UTIL_ScriptFillTableWithTrace( HSCRIPT hTable, const trace_t &tr );
+
+// @NMRiH - Felis: Internal "table-reader" class to:
+// - Automagically release variants we called GetValue on
+// - Safely deduce incoming type (to prevent null refs)
+// - Reduce copypasta, especially on required inputs...
+class CScriptTransientValues
+{
+public:
+	CScriptTransientValues( const HSCRIPT hTable, const char *pszFunctionName = "" )
+	{
+		m_hTable = hTable;
+		m_pszFunctionName = pszFunctionName;
+	}
+
+	~CScriptTransientValues()
+	{
+		FOR_EACH_VEC( m_vecTransientValues, idx )
+		{
+			g_pScriptVM->ReleaseValue( m_vecTransientValues[idx] );
+		}
+	}
+
+	int GetInt( const char *pszKey, const int defaultValue = 0 ) { return InternalGetValue<int>( pszKey, defaultValue ); }
+	float GetFloat( const char *pszKey, const float flDefaultValue = 0.0f ) { return InternalGetValue<float>( pszKey, flDefaultValue ); }
+	const char *GetString( const char *pszKey, const char *pszDefaultValue ) { return InternalGetString( pszKey, pszDefaultValue ); }
+	const Vector &GetVector( const char *pszKey ) { return InternalGetVector( pszKey ); }
+	HSCRIPT GetScriptInstance( const char *pszKey ) { return InternalGetScriptInstance( pszKey ); }
+
+	//-----------------------------------------------------------------------------
+
+	bool GetRequiredValue( const char *pszKey, int &dest ) { return InternalGetRequiredValue( pszKey, dest ); }
+	bool GetRequiredValue( const char *pszKey, float &dest ) { return InternalGetRequiredValue( pszKey, dest ); }
+	bool GetRequiredValue( const char *pszKey, const char **pDest ) { return InternalGetRequiredString( pszKey, pDest ); }
+	bool GetRequiredValue( const char *pszKey, const Vector **pDest ) { return InternalGetRequiredVector( pszKey, pDest ); }
+	bool GetRequiredValue( const char *pszKey, HSCRIPT &dest ) { return InternalGetRequiredScriptInstance( pszKey, dest ); }
+
+protected:
+	bool GetVariant( const char *pszKey, ScriptVariant_t &variant )
+	{
+		if ( !g_pScriptVM->GetValue( m_hTable, pszKey, &variant ) )
+		{
+			return false;
+		}
+
+		if ( ( variant.m_flags & SV_FREE ) )
+		{
+			m_vecTransientValues.AddToTail( variant );
+		}
+
+		return true;
+	}
+
+	//-----------------------------------------------------------------------------
+
+	template <typename T>
+	T InternalGetValue( const char *pszKey, T defaultValue = 0 )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) )
+		{
+			return defaultValue;
+		}
+
+		if ( variant.m_type != ScriptDeduceType( T ) )
+		{
+			// Currenly only used for int/float, so this is fine
+			T convertedValue = 0;
+			variant.AssignTo( &convertedValue );
+			return convertedValue;
+		}
+
+		return variant;
+	}
+
+	const char *InternalGetString( const char *pszKey, const char *pszDefaultValue = "" )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) || variant.m_type != FIELD_CSTRING )
+		{
+			return pszDefaultValue;
+		}
+
+		return variant.m_pszString;
+	}
+
+	const Vector &InternalGetVector( const char *pszKey )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) || variant.m_type != FIELD_VECTOR )
+		{
+			return vec3_origin;
+		}
+
+		return *variant.m_pVector;
+	}
+
+	HSCRIPT InternalGetScriptInstance( const char *pszKey )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) || variant.m_type != FIELD_HSCRIPT )
+		{
+			return NULL;
+		}
+
+		return variant;
+	}
+
+	//-----------------------------------------------------------------------------
+
+	template <typename T>
+	bool InternalGetRequiredValue( const char *pszKey, T &dest )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) )
+		{
+			PrintRequiredValueWarning( pszKey );
+			return false;
+		}
+
+		if ( variant.m_type != ScriptDeduceType( T ) )
+		{
+			// Currenly only used for int/float, so this is fine
+			variant.AssignTo( &dest );
+		}
+		else
+		{
+			dest = variant;
+		}
+
+		return true;
+	}
+
+	bool InternalGetRequiredString( const char *pszKey, const char **pDest )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) || variant.m_type != FIELD_CSTRING )
+		{
+			PrintRequiredValueWarning( pszKey );
+
+			*pDest = "";
+			return false;
+		}
+
+		*pDest = variant.m_pszString;
+		return true;
+	}
+
+	bool InternalGetRequiredVector( const char *pszKey, const Vector **pDest )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) || variant.m_type != FIELD_VECTOR )
+		{
+			PrintRequiredValueWarning( pszKey );
+
+			*pDest = &vec3_origin;
+			return false;
+		}
+
+		*pDest = variant.m_pVector;
+		return true;
+	}
+
+	bool InternalGetRequiredScriptInstance( const char *pszKey, HSCRIPT &dest )
+	{
+		ScriptVariant_t variant;
+		if ( !GetVariant( pszKey, variant ) || variant.m_type != FIELD_HSCRIPT )
+		{
+			PrintRequiredValueWarning( pszKey );
+
+			dest = NULL;
+			return false;
+		}
+
+		dest = variant.m_hScript;
+		return true;
+	}
+
+	void PrintRequiredValueWarning( const char *pszKey ) const
+	{
+		Warning( "Script error! Table passed to %s requires valid \"%s\" value!\n", m_pszFunctionName, pszKey );
+	}
+
+private:
+	HSCRIPT m_hTable;
+	CUtlVector<ScriptVariant_t> m_vecTransientValues;
+	const char *m_pszFunctionName;
+};
+
+// @NMRiH - Felis: Script filter stub
+class CScriptTraceFilter : public CTraceFilterSimple
+{
+public:
+	CScriptTraceFilter( const IHandleEntity *passentity = NULL, const HSCRIPT scriptCallback = NULL, const IHandleEntity *pOwnerEntity = NULL )
+		: CTraceFilterSimple( passentity, COLLISION_GROUP_NONE ), m_hScriptCallback( scriptCallback ), m_pOwnerEntity( pOwnerEntity )
+	{}
+
+	bool ShouldHitEntity( IHandleEntity *pHandleEntity, int contentsMask ) OVERRIDE
+	{
+		if ( pHandleEntity == m_pOwnerEntity )
+			return false;
+
+		bool bRet = CTraceFilterSimple::ShouldHitEntity( pHandleEntity, contentsMask );
+		if ( bRet && m_hScriptCallback )
+		{
+			ScriptVariant_t hParams;
+			g_pScriptVM->CreateTable( hParams );
+			g_pScriptVM->SetValue( hParams, "entity", pHandleEntity ? ToHScript( EntityFromEntityHandle( pHandleEntity ) ) : NULL );
+			g_pScriptVM->SetValue( hParams, "contentsmask", contentsMask );
+
+			ScriptVariant_t hReturn;
+			g_pScriptVM->ExecuteFunction( m_hScriptCallback, &hParams, 1, &hReturn, NULL, true );
+
+			if ( hReturn.m_type != FIELD_VOID )
+			{
+				bRet = hReturn.m_bool;
+			}
+
+			g_pScriptVM->ReleaseScript( hParams );
+		}
+
+		return bRet;
+	}
+
+private:
+	HSCRIPT m_hScriptCallback;
+
+	// For TraceEntity, don't hit self!
+	const IHandleEntity *m_pOwnerEntity;
+};
+
 // @NMRiH - Felis: TraceLineEx, mimicking TF2 function
 static bool ScriptTraceLineEx( const HSCRIPT hTable )
 {
@@ -426,32 +661,151 @@ static bool ScriptTraceLineEx( const HSCRIPT hTable )
 		return false;
 	}
 
+	CScriptTransientValues vars( hTable, "TraceLineEx" );
+
 	// Inputs
-	// Start and end are required
-	ScriptVariant_t start;
-	if ( !g_pScriptVM->GetValue( hTable, "start", &start ) )
+	// 'start' (required)
+	const Vector *pVecStart;
+	if ( !vars.GetRequiredValue( "start", &pVecStart ) )
 	{
 		return false;
 	}
 
-	ScriptVariant_t end;
-	if ( !g_pScriptVM->GetValue( hTable, "end", &end ) )
+	// 'end' (required)
+	const Vector *pVecEnd;
+	if ( !vars.GetRequiredValue( "end", &pVecEnd ) )
 	{
-		// 'start' exists, so release it
-		g_pScriptVM->ReleaseValue( start );
 		return false;
 	}
 
-	ScriptVariant_t mask( MASK_VISIBLE_AND_NPCS );
-	ScriptVariant_t ignore( (HSCRIPT)NULL );
-
-	g_pScriptVM->GetValue( hTable, "mask", &mask );
-	g_pScriptVM->GetValue( hTable, "ignore", &ignore );
+	// Optional variables
+	const int mask = vars.GetInt( "mask", MASK_VISIBLE_AND_NPCS );
+	const HSCRIPT ignore = vars.GetScriptInstance( "ignore" );
+	const HSCRIPT callback = vars.GetScriptInstance( "callback" );
 
 	// Trace
+	CScriptTraceFilter filter( ToEnt( ignore ), callback );
 	trace_t tr;
-	UTIL_TraceLine( *start.m_pVector, *end.m_pVector, mask.m_int, ToEnt( ignore.m_hScript ), COLLISION_GROUP_NONE, &tr );
+	UTIL_TraceLine( *pVecStart, *pVecEnd, mask, &filter, &tr );
 
+	UTIL_ScriptFillTableWithTrace( hTable, tr );
+
+	return true;
+}
+
+// @NMRiH - Felis: TraceHull, mimicking TF2 function
+static bool ScriptTraceHull( const HSCRIPT hTable )
+{
+	if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+	{
+		return false;
+	}
+
+	CScriptTransientValues vars( hTable, "TraceHull" );
+
+	// Inputs
+	// 'start' (required)
+	const Vector *pVecStart;
+	if ( !vars.GetRequiredValue( "start", &pVecStart ) )
+	{
+		return false;
+	}
+
+	// 'end' (required)
+	const Vector *pVecEnd;
+	if ( !vars.GetRequiredValue( "end", &pVecEnd ) )
+	{
+		return false;
+	}
+
+	// 'hullmin' (required)
+	const Vector *pVecHullMin;
+	if ( !vars.GetRequiredValue( "hullmin", &pVecHullMin ) )
+	{
+		return false;
+	}
+
+	// 'hullmax' (required)
+	const Vector *pVecHullMax;
+	if ( !vars.GetRequiredValue( "hullmax", &pVecHullMax ) )
+	{
+		return false;
+	}
+
+	// Optional variables
+	const int mask = vars.GetInt( "mask", MASK_VISIBLE_AND_NPCS );
+	const HSCRIPT ignore = vars.GetScriptInstance( "ignore" );
+	const HSCRIPT callback = vars.GetScriptInstance( "callback" );
+
+	// Trace
+	CScriptTraceFilter filter( ToEnt( ignore ), callback );
+	trace_t tr;
+	UTIL_TraceHull( *pVecStart, *pVecEnd,
+					*pVecHullMin, *pVecHullMax,
+					mask, &filter, &tr );
+
+	UTIL_ScriptFillTableWithTrace( hTable, tr );
+
+	return true;
+}
+
+// @NMRiH - Felis
+static bool ScriptTraceEntity( const HSCRIPT hTable )
+{
+	if ( !g_pScriptVM->EnsureObjectIsTable( hTable ) )
+	{
+		return false;
+	}
+
+	CScriptTransientValues vars( hTable, "TraceEntity" );
+
+	// Inputs
+	// 'entity' (required)
+	HSCRIPT entity;
+	if ( !vars.GetRequiredValue( "entity", entity ) )
+	{
+		return false;
+	}
+
+	// Entity variant must be a valid handle
+	CBaseEntity *pEntity = ToEnt( entity );
+	if ( !pEntity )
+	{
+		return false;
+	}
+
+	// 'start' (required)
+	const Vector *pVecStart;
+	if ( !vars.GetRequiredValue( "start", &pVecStart ) )
+	{
+		return false;
+	}
+
+	// 'end' (required)
+	const Vector *pVecEnd;
+	if ( !vars.GetRequiredValue( "end", &pVecEnd ) )
+	{
+		return false;
+	}
+
+	// Optional variables
+	const int mask = vars.GetInt( "mask", MASK_VISIBLE_AND_NPCS );
+	const HSCRIPT ignore = vars.GetScriptInstance( "ignore" );
+	const HSCRIPT callback = vars.GetScriptInstance( "callback" );
+
+	// Trace
+	CScriptTraceFilter filter( ToEnt( ignore ), callback, pEntity );
+	trace_t tr;
+	UTIL_TraceEntity( pEntity, *pVecStart, *pVecEnd, mask, &filter, &tr );
+
+	UTIL_ScriptFillTableWithTrace( hTable, tr );
+
+	return true;
+}
+
+// @NMRiH - Felis
+void UTIL_ScriptFillTableWithTrace( const HSCRIPT hTable, const trace_t &tr )
+{
 	const bool bDidHit = tr.DidHit();
 
 	// Outputs
@@ -488,14 +842,6 @@ static bool ScriptTraceLineEx( const HSCRIPT hTable )
 	g_pScriptVM->SetValue( hTable, "surface_name", ScriptVariant_t( tr.surface.name ) );
 	g_pScriptVM->SetValue( hTable, "surface_flags", ScriptVariant_t( tr.surface.flags ) );
 	g_pScriptVM->SetValue( hTable, "surface_props", ScriptVariant_t( tr.surface.surfaceProps ) );
-
-	// Release variants we called GetValue on
-	g_pScriptVM->ReleaseValue( start );
-	g_pScriptVM->ReleaseValue( end );
-	g_pScriptVM->ReleaseValue( mask );
-	g_pScriptVM->ReleaseValue( ignore );
-
-	return true;
 }
 
 #ifdef MAPBASE_VSCRIPT
@@ -555,6 +901,7 @@ void ScriptCenterPrintAll( const char *pszMsgName )
 }
 
 // @NMRiH - Felis: FMOD stuff
+#ifdef NMRIH_DLL
 extern int FMOD_PrecacheSound( const char *pszSound, int inFlags, int *pOutFlags /* = NULL */ );
 bool Script_FMOD_PrecacheSound( const char *pszSound )
 {
@@ -570,6 +917,7 @@ bool Script_FMOD_PrecacheSound( const char *pszSound )
 	const int index = FMOD_PrecacheSound( pszSound, 0, NULL );
 	return index != FMOD_INVALID_SOUND_INDEX;
 }
+#endif
 
 bool VScriptServerInit()
 {
@@ -633,7 +981,12 @@ bool VScriptServerInit()
 
 			if( g_pScriptVM )
 			{
-				ConColorMsg( 0, CON_COLOR_VSCRIPT, "VSCRIPT SERVER: Started VScript virtual machine using script language '%s'\n", g_pScriptVM->GetLanguageName() );
+				// @NMRiH - Felis
+#ifdef NMRIH_DLL
+				NMRiH_ConColorMsg( 0, CON_COLOR_VSCRIPT, "VSCRIPT SERVER: Started VScript virtual machine using script language '%s'\n", g_pScriptVM->GetLanguageName() );
+#else
+				Msg( "VSCRIPT SERVER: Started VScript virtual machine using script language '%s'\n", g_pScriptVM->GetLanguageName() );
+#endif
 
 				GetScriptHookManager().OnInit();
 
@@ -654,6 +1007,8 @@ bool VScriptServerInit()
 
 				// @NMRiH - Felis
 				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptTraceLineEx, "TraceLineEx", "Does a raycast along a line specified by two vectors, returning the first entity or geometry hit along the way. Results are written to the passed-in table. The input variables are kept in the table after the trace." );
+				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptTraceHull, "TraceHull", "Does a box (AABB) sweep along a path defined by two vectors, returning the first entity or geometry hit along the way. Results are written to the passed-in table." );
+				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptTraceEntity, "TraceEntity", "Sweeps a particular entity through the world. Results are written to the passed-in table. The input variables are kept in the table after the trace." );
 
 				ScriptRegisterFunction( g_pScriptVM, Time, "Get the current server time" );
 				ScriptRegisterFunction( g_pScriptVM, FrameTime, "Get the time spent on the server in the last frame" );
@@ -687,7 +1042,9 @@ bool VScriptServerInit()
 				ScriptRegisterFunctionNamed( g_pScriptVM, ScriptCenterPrintAllWithParams, "CenterPrintAllWithParams", "Sends HUD text message to all clients, with optional string params. Format is limited to strings and is mapped to param order, i.e. %s1, %s2, %s3, %s4. You can pass an empty string as a param to skip. Usage: CenterPrintAllWithParams(<string>, <p1>, <p2>, <p3>, <p4>)" );
 
 				// @NMRiH - Felis: FMOD stuff
+#ifdef NMRIH_DLL
 				ScriptRegisterFunctionNamed( g_pScriptVM, Script_FMOD_PrecacheSound, "FMOD_PrecacheSound", "Precaches a sound file or soundscript entry to FMOD sound system." );
+#endif
 
 				// @NMRiH - Felis: Global entity listener
 				gEntList.AddListenerEntity( &g_ScriptEntityIterator );
@@ -707,14 +1064,19 @@ bool VScriptServerInit()
 				IGameSystem::RegisterVScriptAllSystems();
 				*/
 
+#ifdef NMRIH_DLL // @NMRiH - Felis: Unavailable in HL2MP build
 				RegisterSharedScriptConstants();
 				RegisterSharedScriptFunctions();
 
-				if ( vscript_debugger_port )
+				if ( script_connect_debugger_on_mapspawn.GetInt() == 2 )
+				{
+					g_pScriptVM->ConnectDebugger( vscript_debugger_port, 10.0f );
+				}
+				else if ( script_connect_debugger_on_mapspawn.GetInt() != 0 )
 				{
 					g_pScriptVM->ConnectDebugger( vscript_debugger_port );
-					vscript_debugger_port = 0;
 				}
+#endif
 
 				if (scriptLanguage == SL_SQUIRREL)
 				{
@@ -755,7 +1117,12 @@ bool VScriptServerInit()
 	}
 	else
 	{
-		ConColorMsg( 0, CON_COLOR_VSCRIPT, "\nVSCRIPT: Scripting is disabled.\n" );
+		// @NMRiH - Felis
+#ifdef NMRIH_DLL
+		NMRiH_ConColorMsg( 0, CON_COLOR_VSCRIPT, "\nVSCRIPT: Scripting is disabled.\n" );
+#else
+		Msg( "\nVSCRIPT: Scripting is disabled.\n" );
+#endif
 	}
 	g_pScriptVM = NULL;
 	return false;
@@ -821,8 +1188,10 @@ CON_COMMAND( script_reload_code, "Execute a vscript file, replacing existing fun
 	}
 
 	// @NMRiH - Felis
+#ifdef NMRIH_DLL
 	if ( GetChallengeManager()->IsChallengeModeActive() )
 		GetChallengeManager()->InvalidateResult( CHALLENGE_REJECT_OUTSIDE_VSCRIPT );
+#endif
 
 	VScriptServerReplaceClosures( args[1], NULL, true );
 }
@@ -852,8 +1221,10 @@ CON_COMMAND( script_reload_entity_code, "Execute all of this entity's VScripts, 
 		return;
 
 	// @NMRiH - Felis
+#ifdef NMRIH_DLL
 	if ( GetChallengeManager()->IsChallengeModeActive() )
 		GetChallengeManager()->InvalidateResult( CHALLENGE_REJECT_OUTSIDE_VSCRIPT );
+#endif
 
 	CBaseEntity *pEntity = NULL;
 	while ( (pEntity = GetNextCommandEntity( pPlayer, pszTarget, pEntity )) != NULL )
@@ -898,8 +1269,10 @@ CON_COMMAND( script_reload_think, "Execute an activation script, replacing exist
 		return;
 
 	// @NMRiH - Felis
+#ifdef NMRIH_DLL
 	if ( GetChallengeManager()->IsChallengeModeActive() )
 		GetChallengeManager()->InvalidateResult( CHALLENGE_REJECT_OUTSIDE_VSCRIPT );
+#endif
 
 	CBaseEntity *pEntity = NULL;
 	while ( (pEntity = GetNextCommandEntity( pPlayer, pszTarget, pEntity )) != NULL )
@@ -977,6 +1350,9 @@ public:
 		if ( g_pScriptVM )
 			g_pScriptVM->Frame( gpGlobals->frametime );
 	}
+
+	// @NMRiH - Felis
+	virtual const char *Name() { return "CVScriptGameSystem"; }
 
 	bool m_bAllowEntityCreationInScripts;
 };
